@@ -1,4 +1,103 @@
-﻿
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boorpunt — Ground Research BV</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a2332">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Boorpunt">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#f5f5f5;padding:12px}
+h1{background:#1e3a5f;color:#fff;padding:14px 20px;font-size:17px}
+.info{padding:10px 20px;background:#f8f9fb;font-size:13px;display:flex;gap:20px;flex-wrap:wrap}
+.info b{color:#1e3a5f}
+#status{padding:8px 20px;background:#fff3e0;color:#e65100;font-size:12px;display:none}
+#map{width:100%;height:550px;background:#ddd;position:relative}
+.ctrl{padding:8px 16px;background:#e8ecf1;display:flex;gap:6px;flex-wrap:wrap}
+.ctrl button{padding:5px 12px;border:1px solid #bbb;border-radius:4px;font-size:11px;cursor:pointer;background:#fff;font-weight:600}
+.ctrl button.on{background:#1e3a5f;color:#fff;border-color:#1e3a5f}
+.leg{padding:8px 20px;background:#fff;font-size:11px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.leg b{color:#1e3a5f;font-size:12px}
+.d{width:10px;height:10px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:3px}
+table{width:100%;border-collapse:collapse;font-size:11px;background:#fff}
+th{background:#1e3a5f;color:#fff;padding:5px 8px;text-align:left}
+td{padding:4px 8px;border-bottom:1px solid #eee}
+</style>
+</head>
+<body>
+
+<h1>Boorpunt — Ground Research BV</h1>
+<div class="info" id="info"></div>
+<div id="status"></div>
+<div class="ctrl" id="ctrl">
+  <button class="on" onclick="sw('sat',this)">Satelliet</button>
+  <button onclick="sw('hyb',this)">Hybride</button>
+  <button onclick="sw('map',this)">Kaart</button>
+  <button onclick="sw('osm',this)">OSM</button>
+  <button onclick="tl()">Labels</button>
+  <button onclick="za()">Zoom fit</button>
+  <button onclick="exportPDF()" style="background:#c62828;color:#fff;border-color:#c62828">📄 PDF</button>
+  <button id="addBtn" onclick="toggleAdd()" style="background:#2e7d32;color:#fff;border-color:#2e7d32">+ Punt</button>
+  <button onclick="undoLast()" style="background:#e65100;color:#fff;border-color:#e65100">↩ Ongedaan</button>
+  <button onclick="clearAll()" style="background:#555;color:#fff;border-color:#555">🗑️ Wis alles</button>
+  <button id="measureBtn" onclick="toggleMeasure()" style="background:#6a1b9a;color:#fff;border-color:#6a1b9a">📏 Meten</button>
+  <button onclick="toggleCSV()" id="csvBtn" style="background:#0277bd;color:#fff;border-color:#0277bd">📂 CSV Import</button>
+  <button onclick="toggleKlic()" id="klicBtn" style="background:#ff6f00;color:#fff;border-color:#ff6f00">⚡ KLIC</button>
+</div>
+<div style="padding:6px 16px;background:#fff;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+  <span style="font-size:12px;font-weight:600;color:#1e3a5f">🔍</span>
+  <input id="adresInput" type="text" placeholder="Zoek adres... bijv. Kerkstraat 1 Marken" style="flex:1;min-width:200px;padding:6px 10px;font-size:13px;border:1px solid #bbb;border-radius:4px">
+  <button onclick="zoekAdres()" style="padding:5px 14px;border:1px solid #1e3a5f;border-radius:4px;font-size:12px;cursor:pointer;background:#1e3a5f;color:#fff;font-weight:600">Zoek</button>
+  <span id="adresResult" style="font-size:11px;color:#666"></span>
+</div>
+<div id="csvDrop" style="margin:0 16px;padding:18px;border:2px dashed #1e3a5f;border-radius:8px;background:#f0f4f8;text-align:center;cursor:pointer;display:none;transition:background 0.2s">
+  <div style="font-size:14px;font-weight:700;color:#1e3a5f">📂 Sleep CSV of Excel bestand hier</div>
+  <div style="font-size:11px;color:#666;margin-top:4px">CSV, XLSX of XLS — kolommen: Naam, X (RD), Y (RD), Diepte, Diameter</div>
+  <div style="margin-top:8px;font-size:12px;display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap">
+    <span style="color:#1e3a5f;font-weight:600">Standaard ⌀ (als niet in bestand):</span>
+    <input id="csvDefaultDia" type="number" value="0" min="0" style="width:60px;padding:4px 6px;font-size:13px;border:1px solid #1e3a5f;border-radius:4px;text-align:center" onclick="event.stopPropagation()"> 
+    <span style="font-size:11px;color:#888">mm (0 = onbekend)</span>
+  </div>
+  <input type="file" id="csvFile" accept=".csv,.txt,.xlsx,.xls" style="display:none">
+  <div id="csvStatus" style="margin-top:6px;font-size:12px;color:#2e7d32;display:none"></div>
+</div>
+<div id="klicDrop" style="margin:0 16px;padding:18px;border:2px dashed #ff6f00;border-radius:8px;background:#fff8e1;text-align:center;cursor:pointer;display:none;transition:background 0.2s">
+  <div style="font-size:14px;font-weight:700;color:#e65100">⚡ Sleep KLIC ZIP-bestand(en) hier</div>
+  <div style="font-size:11px;color:#666;margin-top:4px">ZIP van Kadaster KLIC-levering — meerdere bestanden mogelijk</div>
+  <input type="file" id="klicFile" accept=".zip" multiple style="display:none">
+  <div id="klicStatus" style="margin-top:6px;font-size:12px;color:#2e7d32;display:none"></div>
+</div>
+<div id="klicPanel" style="display:none;padding:8px 16px;background:#fff3e0;font-size:12px">
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <b style="color:#e65100">⚡ KLIC Lagen:</b>
+    <span id="klicLagenList"></span>
+    <label style="font-size:11px;margin-left:8px;white-space:nowrap">Transparantie: <input type="range" id="klicOpacity" min="10" max="100" value="70" style="width:80px;vertical-align:middle" oninput="setKlicOpacity(this.value)"></label>
+    <button onclick="clearAllKlic()" style="padding:2px 8px;border:1px solid #c62828;border-radius:3px;font-size:10px;cursor:pointer;background:#fff;color:#c62828;font-weight:600;margin-left:auto">🗑️ Wis alle KLIC</button>
+  </div>
+</div>
+<div id="addPanel" style="display:none;padding:8px 16px;background:#e8f5e9;font-size:12px">
+  📍 Klik op de kaart om een punt te plaatsen &nbsp;|&nbsp;
+  Naam: <input id="addName" value="" placeholder="bijv. A70000" style="width:80px;padding:2px 5px;font-size:12px"> &nbsp;
+  Diepte: <input id="addDepth" type="number" value="200" style="width:55px;padding:2px 5px;font-size:12px">m &nbsp;
+  ⌀: <input id="addDia" type="number" value="40" min="1" style="width:55px;padding:2px 5px;font-size:12px">mm
+</div>
+<div id="map"></div>
+<div class="leg" id="legend"></div>
+<table><thead><tr><th>#</th><th>Nr</th><th>X</th><th>Y</th><th>Diepte</th><th>⌀</th></tr></thead><tbody id="tb"></tbody></table>
+
+<script>
 try {
 
 var B=[
@@ -1640,218 +1739,6 @@ window.clearMeasure=function(){
   updateMeasureInfo();
 };
 
-// === PROJECT OPSLAAN / LADEN (Supabase) ===
-var projectPanelVisible=false;
-var currentProjectNr='';
-
-window.toggleProjectPanel=function(){
-  projectPanelVisible=!projectPanelVisible;
-  var panel=document.getElementById('projectPanel');
-  if(!panel){
-    panel=document.createElement('div');
-    panel.id='projectPanel';
-    panel.style.cssText='padding:12px 16px;background:#e3f2fd;font-size:12px;border-bottom:2px solid #1565c0;';
-    panel.innerHTML='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
-      '<b style="color:#1565c0">Projectnummer:</b>'+
-      '<input id="projectNr" type="text" placeholder="bijv. 2024-001" value="'+currentProjectNr+'" style="width:140px;padding:4px 8px;font-size:12px;border:1px solid #1565c0;border-radius:4px">'+
-      '<button onclick="saveProject()" style="padding:4px 12px;background:#1565c0;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Opslaan</button>'+
-      '<button onclick="loadProjectList()" style="padding:4px 12px;background:#2e7d32;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Laden</button>'+
-      '<button onclick="deleteProject()" style="padding:4px 12px;background:#c62828;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Verwijderen</button>'+
-      '<span id="projectStatus" style="font-size:11px;color:#666"></span>'+
-      '</div>'+
-      '<div id="projectList" style="margin-top:8px;display:none"></div>';
-    var ctrl=document.getElementById('ctrl');
-    ctrl.parentNode.insertBefore(panel,ctrl.nextSibling);
-  }
-  panel.style.display=projectPanelVisible?'block':'none';
-  var btn=document.getElementById('projectBtn');
-  if(btn){btn.style.background=projectPanelVisible?'#0d47a1':'#1565c0';}
-};
-
-// Helper: serialize KLIC layers for saving
-function serializeKlicLayers(){
-  var result=[];
-  klicLayers.forEach(function(kl){
-    var entry={name:kl.name,visible:kl.visible,layers:[]};
-    kl.layers.forEach(function(l){
-      var layerData={name:l.name,type:l.type,color:l.color||null};
-      if(l.type==='polygon'&&l.overlay&&l.overlay.getLatLngs){
-        var rings=l.overlay.getLatLngs();
-        layerData.latlngs=JSON.parse(JSON.stringify(rings));
-      }
-      if(l.type==='line'&&l.overlay&&l.overlay.getLatLngs){
-        layerData.latlngs=JSON.parse(JSON.stringify(l.overlay.getLatLngs()));
-      }
-      if(l.type==='png'&&l.overlay&&l.overlay.getBounds){
-        var b=l.overlay.getBounds();
-        layerData.bounds=[[b.getSouth(),b.getWest()],[b.getNorth(),b.getEast()]];
-        // Store base64 image if available
-        var imgEl=l.overlay._image||l.overlay.getElement();
-        if(imgEl&&imgEl.src&&imgEl.src.indexOf('data:')===0){
-          layerData.imgData=imgEl.src;
-        }
-      }
-      entry.layers.push(layerData);
-    });
-    result.push(entry);
-  });
-  return result;
-}
-
-// Helper: restore KLIC layers from saved data
-function restoreKlicLayers(savedKlic){
-  // Clear existing
-  klicLayers.forEach(function(kl){
-    kl.layers.forEach(function(l){if(l.overlay)map.removeLayer(l.overlay);});
-  });
-  klicLayers=[];
-  if(!savedKlic||savedKlic.length===0){
-    document.getElementById('klicPanel').style.display='none';
-    return;
-  }
-  savedKlic.forEach(function(entry){
-    var klicEntry={name:entry.name,layers:[],visible:entry.visible!==false,overlays:[]};
-    entry.layers.forEach(function(l){
-      var overlay=null;
-      if(l.type==='polygon'&&l.latlngs){
-        overlay=L.polygon(l.latlngs,{color:l.color||'#ff6f00',weight:2,dashArray:'8,4',fillOpacity:0.08});
-        overlay.addTo(map);
-      }
-      if(l.type==='line'&&l.latlngs){
-        overlay=L.polyline(l.latlngs,{color:l.color||'#666',weight:2.5,opacity:0.85});
-        overlay.addTo(map);
-      }
-      if(l.type==='png'&&l.bounds&&l.imgData){
-        overlay=L.imageOverlay(l.imgData,l.bounds,{opacity:0.7});
-        overlay.addTo(map);
-      }
-      var restored={name:l.name,type:l.type,color:l.color,overlay:overlay};
-      klicEntry.layers.push(restored);
-      if(overlay) klicEntry.overlays.push(overlay);
-    });
-    klicLayers.push(klicEntry);
-  });
-  // Update KLIC panel
-  if(klicLayers.length>0){
-    document.getElementById('klicPanel').style.display='block';
-    updateKlicPanel();
-  }
-}
-
-// Update KLIC lagen panel UI
-function updateKlicPanel(){
-  var html='';
-  klicLayers.forEach(function(kl,ki){
-    kl.layers.forEach(function(l,li){
-      if(l.type==='png_noref') return;
-      var isOn=l.overlay&&map.hasLayer(l.overlay);
-      var colorDot=l.color?'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+l.color+';margin-right:3px"></span>':'';
-      html+='<button onclick="toggleKlicLayer('+ki+','+li+')" style="padding:2px 8px;border:1px solid '+(isOn?'#e65100':'#ccc')+';border-radius:3px;font-size:10px;cursor:pointer;background:'+(isOn?'#fff8e1':'#eee')+';font-weight:'+(isOn?'600':'400')+';margin:1px">'+colorDot+l.name+'</button>';
-    });
-  });
-  document.getElementById('klicLagenList').innerHTML=html;
-}
-
-window.saveProject=function(){
-  var nr=document.getElementById('projectNr').value.trim();
-  if(!nr){alert('Vul een projectnummer in');return;}
-  currentProjectNr=nr;
-  var projectData={
-    projectNr:nr,
-    boreholes:data.map(function(b){return{n:b.n,x:b.x,y:b.y,d:b.d,dia:b.dia,type:b.type||'',custom:b.custom||false};}),
-    klicLayers:serializeKlicLayers(),
-    savedAt:new Date().toISOString()
-  };
-  // Save to localStorage
-  var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
-  allProjects[nr]=projectData;
-  localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
-  // Save to Supabase if available
-  if(window.__supabaseSave){
-    window.__supabaseSave('project_'+nr,projectData);
-    window.__supabaseSave('projects_index',Object.keys(allProjects));
-  }
-  document.getElementById('projectStatus').textContent='\u2705 Project '+nr+' opgeslagen ('+data.length+' punten)';
-  document.getElementById('projectStatus').style.color='#2e7d32';
-};
-
-window.loadProjectList=function(){
-  var listEl=document.getElementById('projectList');
-  listEl.style.display='block';
-  var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
-  var keys=Object.keys(allProjects);
-  if(keys.length===0){
-    listEl.innerHTML='<span style="color:#666">Geen opgeslagen projecten</span>';
-    return;
-  }
-  var html='<b style="color:#1565c0">Opgeslagen projecten:</b><br>';
-  keys.forEach(function(k){
-    var p=allProjects[k];
-    var count=p.boreholes?p.boreholes.length:0;
-    var date=p.savedAt?new Date(p.savedAt).toLocaleDateString('nl-NL'):'';
-    html+='<button onclick="loadProject(\''+k.replace(/'/g,"\\'")+'\')" style="margin:2px 4px;padding:3px 10px;background:#fff;border:1px solid #1565c0;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;color:#1565c0">'+k+' ('+count+' punten, '+date+')</button>';
-  });
-  listEl.innerHTML=html;
-};
-
-window.loadProject=function(nr){
-  var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
-  var proj=allProjects[nr];
-  if(!proj||!proj.boreholes){alert('Project niet gevonden');return;}
-  // Clear current data
-  ms.forEach(function(m){map.removeLayer(m);});
-  ls.forEach(function(l){map.removeLayer(l);});
-  ms=[];ls=[];data.length=0;addedPoints.length=0;
-  // Load boreholes
-  proj.boreholes.forEach(function(b){
-    var ll=rd(b.x,b.y);
-    var item={n:b.n,x:b.x,y:b.y,d:b.d,dia:b.dia||0,lat:ll[0],lng:ll[1],custom:b.custom||false,type:b.type||''};
-    data.push(item);
-    var m=L.circleMarker([item.lat,item.lng],{
-      radius:item.dia>42?8:6,fillColor:cc(item.d),color:'#fff',
-      weight:item.dia>42?2.5:1.5,fillOpacity:0.9
-    }).addTo(map);
-    m.bindPopup('<b>'+item.n+'</b><br>'+item.d+'m | \u2300'+(item.dia||'?')+'mm<br>RD: '+item.x+', '+item.y);
-    ms.push(m);item._marker=m;
-    var lb=L.marker([item.lat,item.lng],{icon:L.divIcon({
-      className:'',iconSize:[0,0],
-      html:'<div style="font-size:8px;font-weight:700;color:#fff;text-shadow:1px 1px 1px #000,-1px -1px 1px #000;transform:translate(-50%,-16px);text-align:center;white-space:nowrap">'+item.n+'</div>'
-    })}).addTo(map);
-    ls.push(lb);item._label=lb;
-  });
-  grp=L.featureGroup(ms);
-  if(ms.length>0) map.fitBounds(grp.getBounds().pad(0.12));
-  buildColorScale();
-  refreshTable();
-  tot=data.reduce(function(s,d){return s+d.d;},0);
-  document.getElementById('info').innerHTML='<span><b>'+data.length+'</b> boringen</span><span><b>'+tot.toLocaleString('nl-NL')+'</b> boormeters</span><span>Gem: <b>'+Math.round(tot/data.length)+'m</b></span>';
-  // Restore KLIC layers if saved
-  if(proj.klicLayers&&proj.klicLayers.length>0){
-    restoreKlicLayers(proj.klicLayers);
-  }
-  currentProjectNr=nr;
-  document.getElementById('projectNr').value=nr;
-  var klicInfo=proj.klicLayers&&proj.klicLayers.length>0?' + KLIC lagen':'';
-  document.getElementById('projectStatus').textContent='\u2705 Project '+nr+' geladen ('+data.length+' punten'+klicInfo+')';
-  document.getElementById('projectStatus').style.color='#2e7d32';
-  document.getElementById('projectList').style.display='none';
-};
-
-window.deleteProject=function(){
-  var nr=document.getElementById('projectNr').value.trim();
-  if(!nr){alert('Vul een projectnummer in');return;}
-  if(!confirm('Project "'+nr+'" verwijderen?')) return;
-  var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
-  delete allProjects[nr];
-  localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
-  if(window.__supabaseSave){
-    window.__supabaseSave('project_'+nr,null);
-    window.__supabaseSave('projects_index',Object.keys(allProjects));
-  }
-  document.getElementById('projectStatus').textContent='Project '+nr+' verwijderd';
-  document.getElementById('projectStatus').style.color='#c62828';
-};
-
 } catch(e) {
   var s=document.getElementById('status');
   s.style.display='block';
@@ -1863,3 +1750,6 @@ window.deleteProject=function(){
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(function(){});
 }
+</script>
+</body>
+</html>

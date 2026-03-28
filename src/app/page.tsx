@@ -52,12 +52,20 @@ export default function Page() {
     const existing = document.getElementById('boorpunt-app-script');
     if (existing) existing.remove();
 
-    // Load the script
-    const script = document.createElement('script');
-    script.id = 'boorpunt-app-script';
-    script.src = '/boorpunt-app.js';
-    script.async = false;
-    document.body.appendChild(script);
+    // Libraries (Leaflet, jsPDF, XLSX, JSZip) are loaded via layout.tsx beforeInteractive
+    // Wait for them to be available, then load the app script
+    const waitForLibs = () => {
+      if (typeof (window as any).L !== 'undefined' && typeof (window as any).jspdf !== 'undefined' && typeof (window as any).JSZip !== 'undefined') {
+        const script = document.createElement('script');
+        script.id = 'boorpunt-app-script';
+        script.src = '/boorpunt-app.js';
+        script.async = false;
+        document.body.appendChild(script);
+      } else {
+        setTimeout(waitForLibs, 50);
+      }
+    };
+    waitForLibs();
   }, [dataLoaded]);
 
   if (loading) return <LoadingScreen />;
@@ -98,7 +106,7 @@ function LoginPage() {
   return (
     <div style={loginStyles.container}>
       <div style={loginStyles.logo}>
-        <div style={{ fontSize: '3rem', marginBottom: 8 }}>📍</div>
+        <div style={{ fontSize: '3rem', marginBottom: 8 }}>&#128205;</div>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: 4 }}>Boorpunt</h1>
         <p style={{ opacity: 0.85, fontSize: '0.85rem' }}>Ground Research BV</p>
       </div>
@@ -143,7 +151,7 @@ const loginStyles: Record<string, React.CSSProperties> = {
 function LoadingScreen({ message = 'Laden...' }: { message?: string }) {
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #1a2332 0%, #2c3e50 40%, #1e3a5f 100%)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      <div style={{ fontSize: '3rem', marginBottom: 16 }}>📍</div>
+      <div style={{ fontSize: '3rem', marginBottom: 16 }}>&#128205;</div>
       <div style={{ fontSize: '1rem', fontWeight: 600 }}>{message}</div>
     </div>
   );
@@ -197,7 +205,7 @@ td{padding:4px 8px;border-bottom:1px solid #eee}
 
 // ============= HTML =============
 const BOORPUNT_HTML = `
-<h1>Boorpunt — Ground Research BV</h1>
+<h1>Boorpunt &#8212; Ground Research BV</h1>
 <div class="info" id="info"></div>
 <div id="status"></div>
 <div class="ctrl" id="ctrl">
@@ -207,25 +215,26 @@ const BOORPUNT_HTML = `
   <button onclick="sw('osm',this)">OSM</button>
   <button onclick="tl()">Labels</button>
   <button onclick="za()">Zoom fit</button>
-  <button onclick="exportPDF()" style="background:#c62828;color:#fff;border-color:#c62828">📄 PDF</button>
+  <button onclick="exportPDF()" style="background:#c62828;color:#fff;border-color:#c62828">&#128196; PDF</button>
   <button id="addBtn" onclick="toggleAdd()" style="background:#2e7d32;color:#fff;border-color:#2e7d32">+ Punt</button>
-  <button onclick="undoLast()" style="background:#e65100;color:#fff;border-color:#e65100">↩ Ongedaan</button>
-  <button onclick="clearAll()" style="background:#555;color:#fff;border-color:#555">🗑️ Wis alles</button>
-  <button id="measureBtn" onclick="toggleMeasure()" style="background:#6a1b9a;color:#fff;border-color:#6a1b9a">📏 Meten</button>
-  <button onclick="toggleCSV()" id="csvBtn" style="background:#0277bd;color:#fff;border-color:#0277bd">📂 CSV Import</button>
-  <button onclick="toggleKlic()" id="klicBtn" style="background:#ff6f00;color:#fff;border-color:#ff6f00">⚡ KLIC</button>
+  <button onclick="undoLast()" style="background:#e65100;color:#fff;border-color:#e65100">&#8617; Ongedaan</button>
+  <button onclick="clearAll()" style="background:#555;color:#fff;border-color:#555">&#128465; Wis alles</button>
+  <button id="measureBtn" onclick="toggleMeasure()" style="background:#6a1b9a;color:#fff;border-color:#6a1b9a">&#128207; Meten</button>
+  <button onclick="toggleCSV()" id="csvBtn" style="background:#0277bd;color:#fff;border-color:#0277bd">&#128194; CSV Import</button>
+  <button onclick="toggleKlic()" id="klicBtn" style="background:#ff6f00;color:#fff;border-color:#ff6f00">&#9889; KLIC</button>
+  <button onclick="toggleProjectPanel()" id="projectBtn" style="background:#1565c0;color:#fff;border-color:#1565c0">&#128193; Project</button>
 </div>
 <div style="padding:6px 16px;background:#fff;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-  <span style="font-size:12px;font-weight:600;color:#1e3a5f">🔍</span>
+  <span style="font-size:12px;font-weight:600;color:#1e3a5f">&#128269;</span>
   <input id="adresInput" type="text" placeholder="Zoek adres... bijv. Kerkstraat 1 Marken" style="flex:1;min-width:200px;padding:6px 10px;font-size:13px;border:1px solid #bbb;border-radius:4px">
   <button onclick="zoekAdres()" style="padding:5px 14px;border:1px solid #1e3a5f;border-radius:4px;font-size:12px;cursor:pointer;background:#1e3a5f;color:#fff;font-weight:600">Zoek</button>
   <span id="adresResult" style="font-size:11px;color:#666"></span>
 </div>
 <div id="csvDrop" style="margin:0 16px;padding:18px;border:2px dashed #1e3a5f;border-radius:8px;background:#f0f4f8;text-align:center;cursor:pointer;display:none;transition:background 0.2s">
-  <div style="font-size:14px;font-weight:700;color:#1e3a5f">📂 Sleep CSV of Excel bestand hier</div>
-  <div style="font-size:11px;color:#666;margin-top:4px">CSV, XLSX of XLS — kolommen: Naam, X (RD), Y (RD), Diepte, Diameter</div>
+  <div style="font-size:14px;font-weight:700;color:#1e3a5f">&#128194; Sleep CSV of Excel bestand hier</div>
+  <div style="font-size:11px;color:#666;margin-top:4px">CSV, XLSX of XLS &mdash; kolommen: Naam, X (RD), Y (RD), Diepte, Diameter</div>
   <div style="margin-top:8px;font-size:12px;display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap">
-    <span style="color:#1e3a5f;font-weight:600">Standaard ⌀ (als niet in bestand):</span>
+    <span style="color:#1e3a5f;font-weight:600">Standaard &empty; (als niet in bestand):</span>
     <input id="csvDefaultDia" type="number" value="0" min="0" style="width:60px;padding:4px 6px;font-size:13px;border:1px solid #1e3a5f;border-radius:4px;text-align:center" onclick="event.stopPropagation()">
     <span style="font-size:11px;color:#888">mm (0 = onbekend)</span>
   </div>
@@ -233,26 +242,26 @@ const BOORPUNT_HTML = `
   <div id="csvStatus" style="margin-top:6px;font-size:12px;color:#2e7d32;display:none"></div>
 </div>
 <div id="klicDrop" style="margin:0 16px;padding:18px;border:2px dashed #ff6f00;border-radius:8px;background:#fff8e1;text-align:center;cursor:pointer;display:none;transition:background 0.2s">
-  <div style="font-size:14px;font-weight:700;color:#e65100">⚡ Sleep KLIC ZIP-bestand(en) hier</div>
-  <div style="font-size:11px;color:#666;margin-top:4px">ZIP van Kadaster KLIC-levering — meerdere bestanden mogelijk</div>
+  <div style="font-size:14px;font-weight:700;color:#e65100">&#9889; Sleep KLIC ZIP-bestand(en) hier</div>
+  <div style="font-size:11px;color:#666;margin-top:4px">ZIP van Kadaster KLIC-levering &mdash; meerdere bestanden mogelijk</div>
   <input type="file" id="klicFile" accept=".zip" multiple style="display:none">
   <div id="klicStatus" style="margin-top:6px;font-size:12px;color:#2e7d32;display:none"></div>
 </div>
 <div id="klicPanel" style="display:none;padding:8px 16px;background:#fff3e0;font-size:12px">
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-    <b style="color:#e65100">⚡ KLIC Lagen:</b>
+    <b style="color:#e65100">&#9889; KLIC Lagen:</b>
     <span id="klicLagenList"></span>
     <label style="font-size:11px;margin-left:8px;white-space:nowrap">Transparantie: <input type="range" id="klicOpacity" min="10" max="100" value="70" style="width:80px;vertical-align:middle" oninput="setKlicOpacity(this.value)"></label>
-    <button onclick="clearAllKlic()" style="padding:2px 8px;border:1px solid #c62828;border-radius:3px;font-size:10px;cursor:pointer;background:#fff;color:#c62828;font-weight:600;margin-left:auto">🗑️ Wis alle KLIC</button>
+    <button onclick="clearAllKlic()" style="padding:2px 8px;border:1px solid #c62828;border-radius:3px;font-size:10px;cursor:pointer;background:#fff;color:#c62828;font-weight:600;margin-left:auto">&#128465; Wis alle KLIC</button>
   </div>
 </div>
 <div id="addPanel" style="display:none;padding:8px 16px;background:#e8f5e9;font-size:12px">
-  📍 Klik op de kaart om een punt te plaatsen &nbsp;|&nbsp;
+  &#128205; Klik op de kaart om een punt te plaatsen &nbsp;|&nbsp;
   Naam: <input id="addName" value="" placeholder="bijv. A70000" style="width:80px;padding:2px 5px;font-size:12px"> &nbsp;
   Diepte: <input id="addDepth" type="number" value="200" style="width:55px;padding:2px 5px;font-size:12px">m &nbsp;
-  ⌀: <input id="addDia" type="number" value="40" min="1" style="width:55px;padding:2px 5px;font-size:12px">mm
+  &empty;: <input id="addDia" type="number" value="40" min="1" style="width:55px;padding:2px 5px;font-size:12px">mm
 </div>
 <div id="map"></div>
 <div class="leg" id="legend"></div>
-<table><thead><tr><th>#</th><th>Nr</th><th>X</th><th>Y</th><th>Diepte</th><th>⌀</th></tr></thead><tbody id="tb"></tbody></table>
+<table><thead><tr><th>#</th><th>Nr</th><th>X</th><th>Y</th><th>Diepte</th><th>&empty;</th></tr></thead><tbody id="tb"></tbody></table>
 `;
