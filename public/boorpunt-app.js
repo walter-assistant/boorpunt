@@ -1847,7 +1847,8 @@ window.loadProjectList=function(){
       var hasKlic=p.klicLayers&&p.klicLayers.length>0;
       var date=p.savedAt?new Date(p.savedAt).toLocaleDateString('nl-NL'):'';
       var label=p.projectNr||item.key;
-      html+='<button onclick="loadProject(\''+item.key.replace(/'/g,"\\'")+'\')" style="margin:2px 4px;padding:4px 12px;background:#fff;border:1px solid #1565c0;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;color:#1565c0">'+label+' ('+count+' punten'+(hasKlic?' + KLIC':'')+', '+date+')</button>';
+      var safeKey=item.key.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+      html+='<button onclick="loadProject(\''+safeKey+'\')" style="margin:2px 4px;padding:4px 12px;background:#fff;border:1px solid #1565c0;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;color:#1565c0">'+label+' ('+count+' punten'+(hasKlic?' + KLIC':'')+', '+date+')</button>';
     });
     html+='</div>';
   });
@@ -1857,16 +1858,29 @@ window.loadProjectList=function(){
 window.loadProject=function(nr){
   var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
   var proj=allProjects[nr];
-  if(!proj||!proj.boreholes){alert('Project niet gevonden');return;}
+  // Fallback: zoek op projectNr als key niet gevonden
+  if(!proj){
+    Object.keys(allProjects).forEach(function(k){
+      if(!proj&&allProjects[k].projectNr===nr) proj=allProjects[k];
+    });
+  }
+  if(!proj||!proj.boreholes){alert('Project niet gevonden: '+nr);return;}
+  console.log('Loading project:',nr,'boreholes:',proj.boreholes.length,'klic:',proj.klicLayers?proj.klicLayers.length:0);
   // Clear current data
   ms.forEach(function(m){map.removeLayer(m);});
   ls.forEach(function(l){map.removeLayer(l);});
-  ms=[];ls=[];data.length=0;addedPoints.length=0;
-  // Load boreholes
+  ms=[];ls=[];data.splice(0,data.length);addedPoints.splice(0,addedPoints.length);
+
+  // First pass: build data array for color scale
   proj.boreholes.forEach(function(b){
     var ll=rd(b.x,b.y);
-    var item={n:b.n,x:b.x,y:b.y,d:b.d,dia:b.dia||0,lat:ll[0],lng:ll[1],custom:b.custom||false,type:b.type||''};
-    data.push(item);
+    data.push({n:b.n,x:b.x,y:b.y,d:b.d,dia:b.dia||0,lat:ll[0],lng:ll[1],custom:b.custom||false,type:b.type||''});
+  });
+  // Build color scale BEFORE creating markers so cc() works correctly
+  buildColorScale();
+
+  // Second pass: create markers with correct colors
+  data.forEach(function(item){
     var m=L.circleMarker([item.lat,item.lng],{
       radius:item.dia>42?8:6,fillColor:cc(item.d),color:'#fff',
       weight:item.dia>42?2.5:1.5,fillOpacity:0.9
@@ -1881,7 +1895,6 @@ window.loadProject=function(nr){
   });
   grp=L.featureGroup(ms);
   if(ms.length>0) map.fitBounds(grp.getBounds().pad(0.12));
-  buildColorScale();
   refreshTable();
   tot=data.reduce(function(s,d){return s+d.d;},0);
   document.getElementById('info').innerHTML='<span><b>'+data.length+'</b> boringen</span><span><b>'+tot.toLocaleString('nl-NL')+'</b> boormeters</span><span>Gem: <b>'+Math.round(tot/data.length)+'m</b></span>';
