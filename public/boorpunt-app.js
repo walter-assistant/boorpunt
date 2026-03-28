@@ -1657,6 +1657,7 @@ window.toggleProjectPanel=function(){
       '<button onclick="saveProject()" style="padding:4px 12px;background:#1565c0;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Opslaan</button>'+
       '<button onclick="loadProjectList()" style="padding:4px 12px;background:#2e7d32;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Laden</button>'+
       '<button onclick="deleteProject()" style="padding:4px 12px;background:#c62828;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Verwijderen</button>'+
+      '<button onclick="exportDropbox()" style="padding:4px 12px;background:#0061fe;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">\u{1F4E6} Dropbox</button>'+
       '<span id="projectStatus" style="font-size:11px;color:#666"></span>'+
       '</div>'+
       '<div id="projectList" style="margin-top:8px;display:none"></div>';
@@ -1850,6 +1851,76 @@ window.deleteProject=function(){
   }
   document.getElementById('projectStatus').textContent='Project '+nr+' verwijderd';
   document.getElementById('projectStatus').style.color='#c62828';
+};
+
+// === DROPBOX EXPORT ===
+window.exportDropbox=function(){
+  var nr=document.getElementById('projectNr')?document.getElementById('projectNr').value.trim():'';
+  if(!nr){alert('Vul eerst een projectnummer in bij Project');return;}
+  if(data.length===0){alert('Geen boorpunten om te exporteren');return;}
+  var statusEl=document.getElementById('projectStatus');
+  statusEl.textContent='Dropbox: map aanmaken...';statusEl.style.color='#0061fe';
+
+  var folderPath='/Ground Research/'+nr;
+
+  // 1. Create folder
+  fetch('/api/dropbox/upload',{
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({folderPath:folderPath})
+  }).then(function(r){return r.json();}).then(function(res){
+    if(res.error){statusEl.textContent='Dropbox fout: '+res.error;statusEl.style.color='#c62828';return;}
+
+    // 2. Export CSV
+    var csv='Nr;X;Y;Diepte;Diameter;Type\n';
+    data.forEach(function(b){
+      csv+=b.n+';'+b.x+';'+b.y+';'+b.d+';'+(b.dia||0)+';'+(b.type||'')+'\n';
+    });
+    var csvB64=btoa(unescape(encodeURIComponent(csv)));
+
+    statusEl.textContent='Dropbox: boorpunten uploaden...';
+
+    return fetch('/api/dropbox/upload',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        filePath:folderPath+'/boorpunten-'+nr+'.csv',
+        fileContent:csvB64,
+        fileName:'boorpunten-'+nr+'.csv'
+      })
+    }).then(function(r){return r.json();});
+  }).then(function(res){
+    if(!res) return;
+    if(res.error){statusEl.textContent='Dropbox fout: '+res.error;statusEl.style.color='#c62828';return;}
+
+    // 3. Export project JSON
+    var projectData={
+      projectNr:nr,
+      boreholes:data.map(function(b){return{n:b.n,x:b.x,y:b.y,d:b.d,dia:b.dia,type:b.type||''};}),
+      klicLayers:serializeKlicLayers(),
+      exportedAt:new Date().toISOString()
+    };
+    var jsonB64=btoa(unescape(encodeURIComponent(JSON.stringify(projectData,null,2))));
+
+    statusEl.textContent='Dropbox: projectbestand uploaden...';
+
+    return fetch('/api/dropbox/upload',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        filePath:folderPath+'/project-'+nr+'.json',
+        fileContent:jsonB64,
+        fileName:'project-'+nr+'.json'
+      })
+    }).then(function(r){return r.json();});
+  }).then(function(res){
+    if(!res) return;
+    if(res.error){statusEl.textContent='Dropbox fout: '+res.error;statusEl.style.color='#c62828';return;}
+    statusEl.textContent='\u2705 Ge\u00ebxporteerd naar Dropbox: '+folderPath;
+    statusEl.style.color='#2e7d32';
+  }).catch(function(err){
+    statusEl.textContent='Dropbox fout: '+err.message;statusEl.style.color='#c62828';
+  });
 };
 
 } catch(e) {
