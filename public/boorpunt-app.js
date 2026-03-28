@@ -41,6 +41,7 @@ function buildColorScale(){
 }
 
 function cc(d){
+  if(d===0||d===undefined||d===null) return '#9e9e9e'; // Grijs voor onbekende diepte
   if(colorScale.ranges.length===0) return '#2e7d32';
   for(var ci=0;ci<colorScale.ranges.length;ci++){
     if(d<=colorScale.ranges[ci].to) return colorScale.ranges[ci].color;
@@ -64,6 +65,9 @@ function updateLegend(){
     }
     h+='<span><i class="d" style="background:'+r.color+'"></i>'+label+'</span> ';
   });
+  // Toon "onbekend" als er punten met diepte 0 zijn
+  var hasZero=data.some(function(d){return d.d===0;});
+  if(hasZero) h+='<span><i class="d" style="background:#9e9e9e"></i>onbekend</span> ';
   h+='&nbsp;|&nbsp; <b>Grootte:</b> schaalt met diameter';
   el.innerHTML=h;
 }
@@ -908,18 +912,17 @@ function processRows(headers,rows,fileName){
         var type=colType>=0&&vals[colType]?vals[colType].trim():'';
         var typeLower=type.toLowerCase();
 
-        // Smart defaults based on type
+        // Diepte: neem over uit bestand, anders 0
         var diepteRaw=colDiepte>=0?String(vals[colDiepte]).replace(',','.'):'';
         var diepte=parseFloat(diepteRaw);
-        if(isNaN(diepte)||diepte<=0){
-          // Extract depth from type name (e.g. bo30 → 30m, bo200 → 200m)
+        // Negatieve dieptes (m-mv notatie) → absoluut
+        if(!isNaN(diepte)&&diepte<0) diepte=Math.abs(diepte);
+        if(isNaN(diepte)){
+          // Probeer diepte uit type naam te halen (bijv. bo30 → 30m)
           var depthMatch=typeLower.match(/\d+/);
-          diepte=depthMatch?parseInt(depthMatch[0]):200;
+          diepte=depthMatch?parseInt(depthMatch[0]):0;
         }
-        // Auto-detect cm vs m: Terra Index exporteert soms in cm
-        // Maar boordieptes voor bronboringen zijn 100-300m, dus alleen converteren
-        // als het overduidelijk cm is (>500 = waarschijnlijk cm, bijv. 250cm = 2.5m)
-        // Waarden 50-500 zijn dubbelzinnig, laat die staan
+        // Auto-detect cm vs m (>500 = waarschijnlijk cm)
         if(diepte>500) diepte=Math.round(diepte/100*10)/10;
         var diaRaw=colDia>=0?String(vals[colDia]).replace(',','.').replace(/[^0-9.]/g,''):'';
         var dia=parseFloat(diaRaw);
@@ -946,8 +949,9 @@ function processRows(headers,rows,fileName){
         };
         var m=L.circleMarker([b.lat,b.lng],markerOpts).addTo(map);
         var typeLabel=type?(' ['+type+']'):'';
-        var diaLabel=dia>0?('\u00D8'+dia+'mm'):'⌀ onbekend';
-        m.bindPopup('<b>'+naam+'</b>'+typeLabel+'<br>'+diepte+'m | '+diaLabel+'<br>RD: '+rdX+', '+rdY);
+        var diaLabel=dia>0?('\u00D8'+dia+'mm'):'\u2300 onbekend';
+        var diepteLabel=diepte>0?(diepte+'m'):'diepte onbekend';
+        m.bindPopup('<b>'+naam+'</b>'+typeLabel+'<br>'+diepteLabel+' | '+diaLabel+'<br>RD: '+rdX+', '+rdY);
         ms.push(m);b._marker=m;
 
         var lb=L.marker([b.lat,b.lng],{icon:L.divIcon({
