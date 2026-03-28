@@ -712,7 +712,31 @@ window.exportPDF=function(){
     pdf.setTextColor(150,150,150);pdf.setFontSize(5.5);
     pdf.text('Ground Research BV \u2014 Vrijheidweg 45, 1521RP Wormerveer',mg,ph-3);
 
-    pdf.save('bronsystemen-overzicht.pdf');
+    // Filename based on project/client
+    var pdfNr=currentProjectNr||'export';
+    var pdfKlant=currentKlant||'';
+    var pdfName=pdfKlant?(pdfKlant+'-'+pdfNr+'-boorpunten.pdf'):('boorpunten-'+pdfNr+'.pdf');
+    pdfName=pdfName.replace(/[^a-zA-Z0-9\-_.]/g,'_');
+
+    pdf.save(pdfName);
+
+    // Auto-upload PDF to Dropbox if project is set
+    if(currentProjectNr){
+      try{
+        var pdfB64=pdf.output('datauristring').split(',')[1];
+        var dropPath=pdfKlant?('/Ground Research/'+pdfKlant+'/'+currentProjectNr+'/'+pdfName):('/Ground Research/'+currentProjectNr+'/'+pdfName);
+        // Create folder first
+        fetch('/api/dropbox/upload',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({folderPath:dropPath.substring(0,dropPath.lastIndexOf('/'))})}).then(function(){
+          return fetch('/api/dropbox/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filePath:dropPath,fileContent:pdfB64,fileName:pdfName})});
+        }).then(function(r){return r.json();}).then(function(res){
+          if(res.success){
+            var st2=document.getElementById('projectStatus');
+            if(st2){st2.textContent='\u2705 PDF ook opgeslagen in Dropbox';st2.style.color='#2e7d32';}
+          }
+        }).catch(function(){});
+      }catch(ex){}
+    }
+
     btn.textContent='\u{1F4C4} PDF';btn.disabled=false;
   }
 };
@@ -1643,6 +1667,7 @@ window.clearMeasure=function(){
 // === PROJECT OPSLAAN / LADEN (Supabase) ===
 var projectPanelVisible=false;
 var currentProjectNr='';
+var currentKlant='';
 
 window.toggleProjectPanel=function(){
   projectPanelVisible=!projectPanelVisible;
@@ -1652,8 +1677,11 @@ window.toggleProjectPanel=function(){
     panel.id='projectPanel';
     panel.style.cssText='padding:12px 16px;background:#e3f2fd;font-size:12px;border-bottom:2px solid #1565c0;';
     panel.innerHTML='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
-      '<b style="color:#1565c0">Projectnummer:</b>'+
-      '<input id="projectNr" type="text" placeholder="bijv. 2024-001" value="'+currentProjectNr+'" style="width:140px;padding:4px 8px;font-size:12px;border:1px solid #1565c0;border-radius:4px">'+
+      '<b style="color:#1565c0">Klant:</b>'+
+      '<input id="klantNaam" type="text" list="klantSuggesties" placeholder="bijv. Arcadis" value="'+currentKlant+'" style="width:130px;padding:4px 8px;font-size:12px;border:1px solid #1565c0;border-radius:4px" oninput="updateKlantSuggesties()">'+
+      '<datalist id="klantSuggesties"></datalist>'+
+      '<b style="color:#1565c0">Project:</b>'+
+      '<input id="projectNr" type="text" placeholder="bijv. 2024-001" value="'+currentProjectNr+'" style="width:130px;padding:4px 8px;font-size:12px;border:1px solid #1565c0;border-radius:4px">'+
       '<button onclick="saveProject()" style="padding:4px 12px;background:#1565c0;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Opslaan</button>'+
       '<button onclick="loadProjectList()" style="padding:4px 12px;background:#2e7d32;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Laden</button>'+
       '<button onclick="deleteProject()" style="padding:4px 12px;background:#c62828;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Verwijderen</button>'+
@@ -1753,26 +1781,43 @@ function updateKlicPanel(){
   document.getElementById('klicLagenList').innerHTML=html;
 }
 
+// Klant suggesties bijwerken
+window.updateKlantSuggesties=function(){
+  var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
+  var klanten={};
+  Object.keys(allProjects).forEach(function(k){
+    var p=allProjects[k];
+    if(p.klant) klanten[p.klant]=true;
+  });
+  var dl=document.getElementById('klantSuggesties');
+  if(dl) dl.innerHTML=Object.keys(klanten).map(function(k){return '<option value="'+k+'">';}).join('');
+};
+
 window.saveProject=function(){
   var nr=document.getElementById('projectNr').value.trim();
+  var klant=document.getElementById('klantNaam').value.trim();
   if(!nr){alert('Vul een projectnummer in');return;}
   currentProjectNr=nr;
+  currentKlant=klant;
+  var projectKey=klant?(klant+'__'+nr):nr;
   var projectData={
     projectNr:nr,
+    klant:klant,
     boreholes:data.map(function(b){return{n:b.n,x:b.x,y:b.y,d:b.d,dia:b.dia,type:b.type||'',custom:b.custom||false};}),
     klicLayers:serializeKlicLayers(),
     savedAt:new Date().toISOString()
   };
   // Save to localStorage
   var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
-  allProjects[nr]=projectData;
+  allProjects[projectKey]=projectData;
   localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
   // Save to Supabase if available
   if(window.__supabaseSave){
-    window.__supabaseSave('project_'+nr,projectData);
+    window.__supabaseSave('project_'+projectKey,projectData);
     window.__supabaseSave('projects_index',Object.keys(allProjects));
   }
-  document.getElementById('projectStatus').textContent='\u2705 Project '+nr+' opgeslagen ('+data.length+' punten)';
+  var label=klant?(klant+' / '+nr):nr;
+  document.getElementById('projectStatus').textContent='\u2705 Project '+label+' opgeslagen ('+data.length+' punten)';
   document.getElementById('projectStatus').style.color='#2e7d32';
 };
 
@@ -1785,12 +1830,26 @@ window.loadProjectList=function(){
     listEl.innerHTML='<span style="color:#666">Geen opgeslagen projecten</span>';
     return;
   }
-  var html='<b style="color:#1565c0">Opgeslagen projecten:</b><br>';
+  // Groepeer per klant
+  var grouped={};
   keys.forEach(function(k){
     var p=allProjects[k];
-    var count=p.boreholes?p.boreholes.length:0;
-    var date=p.savedAt?new Date(p.savedAt).toLocaleDateString('nl-NL'):'';
-    html+='<button onclick="loadProject(\''+k.replace(/'/g,"\\'")+'\')" style="margin:2px 4px;padding:3px 10px;background:#fff;border:1px solid #1565c0;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;color:#1565c0">'+k+' ('+count+' punten, '+date+')</button>';
+    var klant=p.klant||'Zonder klant';
+    if(!grouped[klant]) grouped[klant]=[];
+    grouped[klant].push({key:k,project:p});
+  });
+  var html='';
+  Object.keys(grouped).sort().forEach(function(klant){
+    html+='<div style="margin:6px 0"><b style="color:#1565c0;font-size:12px">\u{1F4C1} '+klant+'</b><br>';
+    grouped[klant].forEach(function(item){
+      var p=item.project;
+      var count=p.boreholes?p.boreholes.length:0;
+      var hasKlic=p.klicLayers&&p.klicLayers.length>0;
+      var date=p.savedAt?new Date(p.savedAt).toLocaleDateString('nl-NL'):'';
+      var label=p.projectNr||item.key;
+      html+='<button onclick="loadProject(\''+item.key.replace(/'/g,"\\'")+'\')" style="margin:2px 4px;padding:4px 12px;background:#fff;border:1px solid #1565c0;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;color:#1565c0">'+label+' ('+count+' punten'+(hasKlic?' + KLIC':'')+', '+date+')</button>';
+    });
+    html+='</div>';
   });
   listEl.innerHTML=html;
 };
@@ -1830,26 +1889,33 @@ window.loadProject=function(nr){
   if(proj.klicLayers&&proj.klicLayers.length>0){
     restoreKlicLayers(proj.klicLayers);
   }
-  currentProjectNr=nr;
-  document.getElementById('projectNr').value=nr;
+  currentProjectNr=proj.projectNr||nr;
+  currentKlant=proj.klant||'';
+  document.getElementById('projectNr').value=currentProjectNr;
+  var klantEl=document.getElementById('klantNaam');
+  if(klantEl) klantEl.value=currentKlant;
+  var label=currentKlant?(currentKlant+' / '+currentProjectNr):currentProjectNr;
   var klicInfo=proj.klicLayers&&proj.klicLayers.length>0?' + KLIC lagen':'';
-  document.getElementById('projectStatus').textContent='\u2705 Project '+nr+' geladen ('+data.length+' punten'+klicInfo+')';
+  document.getElementById('projectStatus').textContent='\u2705 Project '+label+' geladen ('+data.length+' punten'+klicInfo+')';
   document.getElementById('projectStatus').style.color='#2e7d32';
   document.getElementById('projectList').style.display='none';
 };
 
 window.deleteProject=function(){
   var nr=document.getElementById('projectNr').value.trim();
+  var klant=document.getElementById('klantNaam')?document.getElementById('klantNaam').value.trim():'';
   if(!nr){alert('Vul een projectnummer in');return;}
-  if(!confirm('Project "'+nr+'" verwijderen?')) return;
+  var projectKey=klant?(klant+'__'+nr):nr;
+  var label=klant?(klant+' / '+nr):nr;
+  if(!confirm('Project "'+label+'" verwijderen?')) return;
   var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
-  delete allProjects[nr];
+  delete allProjects[projectKey];
   localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
   if(window.__supabaseSave){
-    window.__supabaseSave('project_'+nr,null);
+    window.__supabaseSave('project_'+projectKey,null);
     window.__supabaseSave('projects_index',Object.keys(allProjects));
   }
-  document.getElementById('projectStatus').textContent='Project '+nr+' verwijderd';
+  document.getElementById('projectStatus').textContent='Project '+label+' verwijderd';
   document.getElementById('projectStatus').style.color='#c62828';
 };
 
@@ -1861,7 +1927,8 @@ window.exportDropbox=function(){
   var statusEl=document.getElementById('projectStatus');
   statusEl.textContent='Dropbox: map aanmaken...';statusEl.style.color='#0061fe';
 
-  var folderPath='/Ground Research/'+nr;
+  var klant=document.getElementById('klantNaam')?document.getElementById('klantNaam').value.trim():'';
+  var folderPath=klant?('/Ground Research/'+klant+'/'+nr):('/Ground Research/'+nr);
 
   // 1. Create folder
   fetch('/api/dropbox/upload',{
