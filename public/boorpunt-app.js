@@ -761,47 +761,19 @@ window.exportPDF=function(){
       ctx.fillStyle=color;ctx.fill();
     });
 
-    // Calculate label positions with collision avoidance
-    var labels=[];
-    visible.forEach(function(b){
+    // Place labels directly next to dots (alternating left/right)
+    ctx.font='bold '+labelFontSize+'px system-ui,sans-serif';
+    var labelOffset=dotRadius+Math.round(4*scaleFactor);
+    visible.forEach(function(b,idx){
       var px=ll2px(b.lat,b.lng,z);
       var cx=(px.x-originX)*pxScale, cy=(px.y-originY)*pxScale;
-      labels.push({b:b,cx:cx,cy:cy,nameX:cx,nameY:cy-dotRadius-Math.round(6*scaleFactor)});
-    });
-
-    // Resolve overlaps: spread apart horizontally + vertically
-    for(var i=0;i<labels.length;i++){
-      for(var j=i+1;j<labels.length;j++){
-        var a=labels[i], bL=labels[j];
-        var colDist=Math.round(55*scaleFactor);
-        if(Math.abs(a.cx-bL.cx)<colDist && Math.abs(a.nameY-bL.nameY)<(labelFontSize+4)){
-          var spread=Math.max(Math.round(40*scaleFactor),Math.round(60*scaleFactor)-Math.abs(a.cx-bL.cx));
-          a.nameX=a.cx-spread;
-          bL.nameX=bL.cx+spread;
-          if(Math.abs(a.nameY-bL.nameY)<(labelFontSize+4)){
-            a.nameY=Math.min(a.nameY,bL.nameY)-(labelFontSize+4);
-          }
-        }
-      }
-    }
-
-    // Draw labels + leader lines
-    ctx.font='bold '+labelFontSize+'px system-ui,sans-serif';
-    labels.forEach(function(lbl){
-      // Leader line if label is offset from marker
-      if(Math.abs(lbl.nameX-lbl.cx)>10){
-        ctx.beginPath();
-        ctx.moveTo(lbl.cx,lbl.cy-dotRadius);
-        ctx.lineTo(lbl.nameX,lbl.nameY+4);
-        ctx.strokeStyle='rgba(30,58,95,0.4)';ctx.lineWidth=Math.max(1,scaleFactor);
-        ctx.stroke();
-      }
-
-      // Dark blue text, no background box
-      ctx.textAlign='center';
+      // Alternate: even=right, odd=left
+      var textW=ctx.measureText(b.n).width;
+      var side=(idx%2===0)?1:-1;
+      var tx=side===1?(cx+labelOffset):(cx-labelOffset);
+      ctx.textAlign=side===1?'left':'right';
       ctx.fillStyle='#1e3a5f';
-      ctx.font='bold '+labelFontSize+'px system-ui,sans-serif';
-      ctx.fillText(lbl.b.n,lbl.nameX,lbl.nameY);
+      ctx.fillText(b.n,tx,cy+Math.round(labelFontSize*0.35));
     });
 
     // Get image
