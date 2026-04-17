@@ -2212,7 +2212,30 @@ window.loadProject=function(nr){
       if(!proj&&allProjects[k].projectNr===nr) proj=allProjects[k];
     });
   }
-  if(!proj||!proj.boreholes){alert('Project niet gevonden: '+nr);return;}
+  // Fallback 2: zoek direct in Supabase data (als localStorage key mismatch)
+  if(!proj && window.__supabaseData){
+    var sbKey='project_'+nr;
+    if(window.__supabaseData[sbKey]){
+      proj=window.__supabaseData[sbKey];
+      // Sla meteen op in localStorage
+      allProjects[nr]=proj;
+      localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
+    }
+    // Fallback 3: zoek op projectNr in alle Supabase keys
+    if(!proj){
+      Object.keys(window.__supabaseData).forEach(function(k){
+        if(!proj && k.indexOf('project_')===0 && window.__supabaseData[k]){
+          var sp=window.__supabaseData[k];
+          if(sp.projectNr===nr) proj=sp;
+        }
+      });
+    }
+  }
+  if(!proj||!proj.boreholes){
+    console.error('loadProject mislukt voor key:', nr, 'localStorage keys:', Object.keys(allProjects), 'proj:', proj);
+    alert('Project niet gevonden: '+nr);
+    return;
+  }
   console.log('Loading project:',nr,'boreholes:',proj.boreholes.length,'klic:',proj.klicLayers?proj.klicLayers.length:0);
   // Clear current data
   ms.forEach(function(m){map.removeLayer(m);});
