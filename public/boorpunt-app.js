@@ -763,7 +763,7 @@ window.exportPDF=function(){
 
     // Place labels directly next to dots (alternating left/right)
     ctx.font='bold '+labelFontSize+'px system-ui,sans-serif';
-    var labelOffset=dotRadius+Math.round(4*scaleFactor);
+    var labelOffset=dotRadius+Math.round(10*scaleFactor);
     visible.forEach(function(b,idx){
       var px=ll2px(b.lat,b.lng,z);
       var cx=(px.x-originX)*pxScale, cy=(px.y-originY)*pxScale;
