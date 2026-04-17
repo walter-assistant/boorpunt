@@ -2068,25 +2068,28 @@ window.updateKlantSuggesties=function(){
 
 // Bidirectional sync: Supabase ↔ localStorage
 (function syncProjects(){
-  if(!window.__supabaseData) return;
+  if(!window.__supabaseData){
+    console.warn('Boorpunt sync: __supabaseData niet beschikbaar');
+    return;
+  }
   var sbData=window.__supabaseData;
   var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
   var lsChanged=false;
+  var sbKeys=Object.keys(sbData).filter(function(k){return k.indexOf('project_')===0 && sbData[k];});
+  console.log('Boorpunt sync: '+sbKeys.length+' projecten in Supabase, '+Object.keys(allProjects).length+' in localStorage');
 
   // 1) Supabase → localStorage (Supabase wins if newer)
-  Object.keys(sbData).forEach(function(key){
-    if(key.indexOf('project_')===0 && sbData[key]){
-      var projectKey=key.substring(8);
-      var sbProj=sbData[key];
-      var lsProj=allProjects[projectKey];
-      if(!lsProj || (sbProj.savedAt && (!lsProj.savedAt || sbProj.savedAt > lsProj.savedAt))){
-        allProjects[projectKey]=sbProj;
-        lsChanged=true;
-      }
+  sbKeys.forEach(function(key){
+    var projectKey=key.substring(8);
+    var sbProj=sbData[key];
+    var lsProj=allProjects[projectKey];
+    if(!lsProj || (sbProj.savedAt && (!lsProj.savedAt || sbProj.savedAt > lsProj.savedAt))){
+      allProjects[projectKey]=sbProj;
+      lsChanged=true;
     }
   });
 
-  // 2) localStorage → Supabase (push projects that only exist locally)
+  // 2) localStorage → Supabase (push projects that only exist locally or are newer)
   if(window.__supabaseSave){
     var pushCount=0;
     Object.keys(allProjects).forEach(function(projectKey){
@@ -2098,7 +2101,6 @@ window.updateKlantSuggesties=function(){
         pushCount++;
       }
     });
-    // Also sync the projects index
     if(pushCount>0){
       window.__supabaseSave('projects_index',Object.keys(allProjects));
       console.log('Boorpunt: pushed '+pushCount+' local projects to Supabase');
@@ -2107,7 +2109,7 @@ window.updateKlantSuggesties=function(){
 
   if(lsChanged){
     localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
-    console.log('Boorpunt: synced projects from Supabase to localStorage');
+    console.log('Boorpunt: pulled '+sbKeys.length+' projects from Supabase to localStorage');
   }
 })();
 
@@ -2144,8 +2146,26 @@ window.loadProjectList=function(){
   listEl.style.display='block';
   var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
   var keys=Object.keys(allProjects);
+
+  // Als localStorage leeg is, probeer opnieuw te synchen vanuit Supabase
+  if(keys.length===0 && window.__supabaseData){
+    var sbData=window.__supabaseData;
+    Object.keys(sbData).forEach(function(key){
+      if(key.indexOf('project_')===0 && sbData[key]){
+        var projectKey=key.substring(8);
+        allProjects[projectKey]=sbData[key];
+      }
+    });
+    keys=Object.keys(allProjects);
+    if(keys.length>0){
+      localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
+      console.log('Boorpunt: '+keys.length+' projecten hersteld uit Supabase bij laden');
+    }
+  }
+
   if(keys.length===0){
-    listEl.innerHTML='<span style="color:#666">Geen opgeslagen projecten</span>';
+    listEl.innerHTML='<span style="color:#666">Geen opgeslagen projecten. ' +
+      (window.__supabaseData ? 'Supabase bevat ook geen projecten voor dit account.' : 'Niet ingelogd?') + '</span>';
     return;
   }
   // Groepeer per klant
