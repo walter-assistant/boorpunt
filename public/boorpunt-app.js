@@ -744,23 +744,21 @@ window.exportPDF=function(){
     // Crosshair markers + colored labels with background box
     // Scale marker size relative to canvas (target ~4000px canvas, markers ~6px cross, ~14px font)
     var scaleFactor=Math.max(1,cW/2000);
-    var crossSize=Math.round(4*scaleFactor);
+    var dotRadius=Math.round(5*scaleFactor);
     var labelFontSize=Math.round(10*scaleFactor);
 
-    // Draw cross markers on canvas
+    // Draw dot markers on canvas
     visible.forEach(function(b){
       var px=ll2px(b.lat,b.lng,z);
       var cx=(px.x-originX)*pxScale, cy=(px.y-originY)*pxScale;
       var color=cc(b.d);
 
-      // White outline cross
-      ctx.strokeStyle='#fff';ctx.lineWidth=Math.round(3*scaleFactor);
-      ctx.beginPath();ctx.moveTo(cx-crossSize-1,cy);ctx.lineTo(cx+crossSize+1,cy);ctx.stroke();
-      ctx.beginPath();ctx.moveTo(cx,cy-crossSize-1);ctx.lineTo(cx,cy+crossSize+1);ctx.stroke();
-      // Colored cross
-      ctx.strokeStyle=color;ctx.lineWidth=Math.round(1.5*scaleFactor);
-      ctx.beginPath();ctx.moveTo(cx-crossSize,cy);ctx.lineTo(cx+crossSize,cy);ctx.stroke();
-      ctx.beginPath();ctx.moveTo(cx,cy-crossSize);ctx.lineTo(cx,cy+crossSize);ctx.stroke();
+      // White outline circle
+      ctx.beginPath();ctx.arc(cx,cy,dotRadius+Math.round(1.5*scaleFactor),0,2*Math.PI);
+      ctx.fillStyle='#fff';ctx.fill();
+      // Colored filled circle
+      ctx.beginPath();ctx.arc(cx,cy,dotRadius,0,2*Math.PI);
+      ctx.fillStyle=color;ctx.fill();
     });
 
     // Calculate label positions with collision avoidance
@@ -768,7 +766,7 @@ window.exportPDF=function(){
     visible.forEach(function(b){
       var px=ll2px(b.lat,b.lng,z);
       var cx=(px.x-originX)*pxScale, cy=(px.y-originY)*pxScale;
-      labels.push({b:b,cx:cx,cy:cy,nameX:cx,nameY:cy-crossSize-Math.round(6*scaleFactor)});
+      labels.push({b:b,cx:cx,cy:cy,nameX:cx,nameY:cy-dotRadius-Math.round(6*scaleFactor)});
     });
 
     // Resolve overlaps: spread apart horizontally + vertically
@@ -793,21 +791,16 @@ window.exportPDF=function(){
       // Leader line if label is offset from marker
       if(Math.abs(lbl.nameX-lbl.cx)>10){
         ctx.beginPath();
-        ctx.moveTo(lbl.cx,lbl.cy-crossSize);
+        ctx.moveTo(lbl.cx,lbl.cy-dotRadius);
         ctx.lineTo(lbl.nameX,lbl.nameY+4);
         ctx.strokeStyle='rgba(30,58,95,0.4)';ctx.lineWidth=Math.max(1,scaleFactor);
         ctx.stroke();
       }
 
-      // Measure text for background box
-      var textW=ctx.measureText(lbl.b.n).width;
-      var boxPad=Math.round(3*scaleFactor);
-      // White background box
-      ctx.fillStyle='rgba(255,255,255,0.85)';
-      ctx.fillRect(lbl.nameX-textW/2-boxPad,lbl.nameY-labelFontSize+1,textW+boxPad*2,labelFontSize+2);
-      // Dark blue text
+      // Dark blue text, no background box
       ctx.textAlign='center';
       ctx.fillStyle='#1e3a5f';
+      ctx.font='bold '+labelFontSize+'px system-ui,sans-serif';
       ctx.fillText(lbl.b.n,lbl.nameX,lbl.nameY);
     });
 
@@ -2073,26 +2066,46 @@ window.updateKlantSuggesties=function(){
   if(dl) dl.innerHTML=Object.keys(klanten).map(function(k){return '<option value="'+k+'">';}).join('');
 };
 
-// Sync Supabase projects into localStorage on init
-(function syncSupabaseProjects(){
+// Bidirectional sync: Supabase ↔ localStorage
+(function syncProjects(){
   if(!window.__supabaseData) return;
   var sbData=window.__supabaseData;
   var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
-  var changed=false;
-  // Find all project_ keys in Supabase data
+  var lsChanged=false;
+
+  // 1) Supabase → localStorage (Supabase wins if newer)
   Object.keys(sbData).forEach(function(key){
     if(key.indexOf('project_')===0 && sbData[key]){
-      var projectKey=key.substring(8); // remove 'project_' prefix
-      // Supabase version wins if newer or if not in localStorage
+      var projectKey=key.substring(8);
       var sbProj=sbData[key];
       var lsProj=allProjects[projectKey];
       if(!lsProj || (sbProj.savedAt && (!lsProj.savedAt || sbProj.savedAt > lsProj.savedAt))){
         allProjects[projectKey]=sbProj;
-        changed=true;
+        lsChanged=true;
       }
     }
   });
-  if(changed){
+
+  // 2) localStorage → Supabase (push projects that only exist locally)
+  if(window.__supabaseSave){
+    var pushCount=0;
+    Object.keys(allProjects).forEach(function(projectKey){
+      var sbKey='project_'+projectKey;
+      var sbProj=sbData[sbKey];
+      var lsProj=allProjects[projectKey];
+      if(!sbProj || (lsProj.savedAt && (!sbProj.savedAt || lsProj.savedAt > sbProj.savedAt))){
+        window.__supabaseSave(sbKey,lsProj);
+        pushCount++;
+      }
+    });
+    // Also sync the projects index
+    if(pushCount>0){
+      window.__supabaseSave('projects_index',Object.keys(allProjects));
+      console.log('Boorpunt: pushed '+pushCount+' local projects to Supabase');
+    }
+  }
+
+  if(lsChanged){
     localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
     console.log('Boorpunt: synced projects from Supabase to localStorage');
   }
