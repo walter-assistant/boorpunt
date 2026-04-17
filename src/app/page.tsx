@@ -10,17 +10,25 @@ export default function Page() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const scriptLoaded = useRef(false);
 
-  // Auth
+  // Auth — only update state on actual session changes, not tab switches
+  const sessionRef = useRef<Session | null>(null);
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
+      sessionRef.current = session;
       setSession(session);
       setLoading(false);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (!session) {
-        setDataLoaded(false);
-        scriptLoaded.current = false;
+      // Only update if session actually changed (login/logout)
+      const prev = sessionRef.current;
+      const changed = (!prev && session) || (prev && !session) || (prev?.user?.id !== session?.user?.id);
+      if (changed) {
+        sessionRef.current = session;
+        setSession(session);
+        if (!session) {
+          setDataLoaded(false);
+          scriptLoaded.current = false;
+        }
       }
     });
     return () => subscription.unsubscribe();
@@ -46,6 +54,11 @@ export default function Page() {
   // Load the boorpunt app script after HTML is rendered and data is loaded
   useEffect(() => {
     if (!dataLoaded || scriptLoaded.current) return;
+    // If map already exists (tab switch back), don't reload script
+    if ((window as any).__boorpuntMap) {
+      scriptLoaded.current = true;
+      return;
+    }
     scriptLoaded.current = true;
 
     // Remove any existing script
@@ -58,7 +71,7 @@ export default function Page() {
       if (typeof (window as any).L !== 'undefined' && typeof (window as any).jspdf !== 'undefined' && typeof (window as any).JSZip !== 'undefined') {
         const script = document.createElement('script');
         script.id = 'boorpunt-app-script';
-        script.src = '/boorpunt-app.js';
+        script.src = '/boorpunt-app.js?v=' + Date.now();
         script.async = false;
         document.body.appendChild(script);
       } else {
@@ -213,6 +226,9 @@ const BOORPUNT_HTML = `
   <button onclick="sw('hyb',this)">Hybride</button>
   <button onclick="sw('map',this)">Kaart</button>
   <button onclick="sw('osm',this)">OSM</button>
+  <button onclick="sw('pdoklucht',this)" title="PDOK Luchtfoto Actueel HR (7.5cm)">&#127465;&#127473; Luchtfoto HR</button>
+  <button onclick="sw('pdoktopo',this)" title="PDOK Topografisch (BRT)">&#127757; Topo</button>
+  <button onclick="sw('pdokkad',this)" title="PDOK Kadastrale kaart">&#128196; Kadaster</button>
   <button onclick="tl()">Labels</button>
   <button onclick="za()">Zoom fit</button>
   <button onclick="exportPDF()" style="background:#c62828;color:#fff;border-color:#c62828">&#128196; PDF</button>

@@ -19,7 +19,7 @@ var COLORS=['#6a1b9a','#1565c0','#2e7d32','#e65100','#c62828'];
 
 function buildColorScale(){
   var depths=data.map(function(d){return d.d;}).filter(function(d){return d>0;});
-  if(depths.length===0){colorScale.ranges=[];return;}
+  if(depths.length===0){colorScale.ranges=[];updateLegend();return;}
   var mn=Math.min.apply(null,depths);
   var mx=Math.max.apply(null,depths);
   colorScale.min=mn;colorScale.max=mx;
@@ -127,7 +127,13 @@ var tiles={
   sat:L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{subdomains:'0123',maxZoom:21,attribution:'Google'}),
   hyb:L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',{subdomains:'0123',maxZoom:21,attribution:'Google'}),
   map:L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',{subdomains:'0123',maxZoom:21,attribution:'Google'}),
-  osm:L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'OSM'})
+  osm:L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'OSM'}),
+  // PDOK luchtfoto actueel (HR = 7.5cm resolutie, scherp)
+  pdoklucht:L.tileLayer('https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg',{maxZoom:21,attribution:'PDOK Luchtfoto HR'}),
+  // PDOK BRT Achtergrondkaart (topografisch)
+  pdoktopo:L.tileLayer('https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/standaard/EPSG:3857/{z}/{x}/{y}.png',{maxZoom:19,attribution:'PDOK BRT'}),
+  // PDOK Kadastrale kaart (perceelsgrenzen)
+  pdokkad:L.tileLayer('https://service.pdok.nl/kadaster/kadastralekaart/wmts/v5_0/Kadastralekaart/EPSG:3857/{z}/{x}/{y}.png',{maxZoom:19,attribution:'PDOK Kadaster'})
 };
 
 // Bereken center alvast — default Nederland midden als geen data
@@ -135,7 +141,10 @@ var cLat=data.length>0?data.reduce(function(s,d){return s+d.lat;},0)/data.length
 var cLng=data.length>0?data.reduce(function(s,d){return s+d.lng;},0)/data.length:4.9;
 var defZoom=data.length>0?15:8;
 
+// Prevent re-init if already exists (tab switch)
+if(window.__boorpuntMap) { console.log('Boorpunt: map already loaded, skipping init'); throw {__skip:true}; }
 var map=L.map('map',{center:[cLat,cLng],zoom:defZoom});
+window.__boorpuntMap=map;
 
 var cur=tiles.sat, curKey='sat';
 cur.addTo(map);
@@ -157,19 +166,118 @@ setTimeout(function(){
 },3000);
 
 var ms=[],ls=[],lv=true;
-data.forEach(function(b){
+
+function esc(v){
+  return String(v===undefined||v===null?'':v)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function isPeilbuisType(b){
+  var t=(b&&b.type?String(b.type):'').toLowerCase();
+  return t==='pb'||t==='peilbuis'||t==='monitoring';
+}
+
+function getPointRadius(b){
+  if(isPeilbuisType(b)) return 5;
+  if(b.dia>42) return 8;
+  return b.dia>0?6:5;
+}
+
+function getPointWeight(b){
+  if(isPeilbuisType(b)) return 2;
+  return b.dia>42?2.5:1.5;
+}
+
+function getPointStrokeColor(b){
+  return isPeilbuisType(b)?'#000':'#fff';
+}
+
+function getPointFillColor(b){
+  return isPeilbuisType(b)?'#ff6f00':cc(b.d);
+}
+
+function getPointLabelColor(b){
+  return b.labelColor||(b.csv?'#0ff':b.custom?'#ff0':'#fff');
+}
+
+function getPointLabelHtml(b){
+  return '<div style="font-size:8px;font-weight:700;color:'+getPointLabelColor(b)+';text-shadow:1px 1px 1px #000,-1px -1px 1px #000;transform:translate(-50%,-16px);text-align:center;white-space:nowrap">'+esc(b.n)+'</div>';
+}
+
+function getPointPopupHtml(b){
+  var idx=data.indexOf(b);
+  var diaValue=b.dia>0?b.dia:'';
+  var diepteValue=b.d>0?b.d:'';
+  var diaLabel=b.dia>0?('⌀'+b.dia+'mm'):'⌀ onbekend';
+  var diepteLabel=b.d>0?(b.d+'m'):'diepte onbekend';
+  var typeLabel=b.type?(' ['+esc(b.type)+']'):'';
+  return '<div style="min-width:185px">'
+    +'<div style="font-weight:700;margin-bottom:4px">'+esc(b.n)+typeLabel+'</div>'
+    +'<div style="font-size:11px;color:#555;margin-bottom:6px">'+diepteLabel+' | '+diaLabel+'<br>RD: '+b.x+', '+b.y+'</div>'
+    +'<div style="display:grid;grid-template-columns:52px 1fr;gap:4px;align-items:center;font-size:11px">'
+    +'<span>Nr</span><input id="editName_'+idx+'" value="'+esc(b.n)+'" style="padding:3px 5px;border:1px solid #bbb;border-radius:4px;font-size:11px">'
+    +'<span>Diepte</span><input id="editDepth_'+idx+'" type="number" min="0" step="0.1" value="'+diepteValue+'" style="padding:3px 5px;border:1px solid #bbb;border-radius:4px;font-size:11px">'
+    +'<span>⌀ mm</span><input id="editDia_'+idx+'" type="number" min="0" step="0.1" value="'+diaValue+'" style="padding:3px 5px;border:1px solid #bbb;border-radius:4px;font-size:11px">'
+    +'</div>'
+    +'<div style="margin-top:7px;display:flex;gap:6px">'
+    +'<button onclick="savePointEdit('+idx+')" style="padding:4px 10px;background:#1e3a5f;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Opslaan</button>'
+    +'<button onclick="closePointEdit()" style="padding:4px 10px;background:#eee;color:#333;border:none;border-radius:4px;font-size:11px;cursor:pointer">Sluiten</button>'
+    +'</div>'
+    +'</div>';
+}
+
+function attachPointLayers(b,labelColor){
+  if(labelColor) b.labelColor=labelColor;
   var m=L.circleMarker([b.lat,b.lng],{
-    radius:b.dia===45?8:6, fillColor:cc(b.d), color:'#fff',
-    weight:b.dia===45?2.5:1.5, fillOpacity:0.9
+    radius:getPointRadius(b), fillColor:getPointFillColor(b), color:getPointStrokeColor(b),
+    weight:getPointWeight(b), fillOpacity:0.9
   }).addTo(map);
-  m.bindPopup('<b>'+b.n+'</b><br>'+b.d+'m | ⌀'+b.dia+'mm<br>RD: '+b.x+', '+b.y);
+  m.bindPopup(getPointPopupHtml(b));
   ms.push(m);
+  b._marker=m;
 
   var lb=L.marker([b.lat,b.lng],{icon:L.divIcon({
     className:'',iconSize:[0,0],
-    html:'<div style="font-size:8px;font-weight:700;color:#fff;text-shadow:1px 1px 1px #000,-1px -1px 1px #000;transform:translate(-50%,-16px);text-align:center;white-space:nowrap">'+b.n+'</div>'
+    html:getPointLabelHtml(b)
   })}).addTo(map);
   ls.push(lb);
+  b._label=lb;
+}
+
+function refreshPointLayers(b){
+  if(b._marker&&b._marker.setStyle){
+    b._marker.setStyle({
+      radius:getPointRadius(b),
+      fillColor:getPointFillColor(b),
+      color:getPointStrokeColor(b),
+      weight:getPointWeight(b),
+      fillOpacity:0.9
+    });
+    b._marker.setPopupContent(getPointPopupHtml(b));
+  }
+  if(b._label&&b._label.setIcon){
+    b._label.setIcon(L.divIcon({className:'',iconSize:[0,0],html:getPointLabelHtml(b)}));
+  }
+}
+
+function refreshPointDataViews(){
+  buildColorScale();
+  data.forEach(function(item){refreshPointLayers(item);});
+  grp=L.featureGroup(ms);
+  refreshTable();
+  tot=data.reduce(function(s,d){return s+d.d;},0);
+  if(data.length>0){
+    document.getElementById('info').innerHTML='<span><b>'+data.length+'</b> boringen</span><span><b>'+tot.toLocaleString('nl-NL')+'</b> boormeters</span><span>Gem: <b>'+Math.round(tot/data.length)+'m</b></span>';
+  } else {
+    document.getElementById('info').innerHTML='<span><b>0</b> boringen</span><span><b>0</b> boormeters</span>';
+  }
+}
+
+data.forEach(function(b){
+  attachPointLayers(b,'#fff');
 });
 
 var grp=L.featureGroup(ms);
@@ -222,32 +330,8 @@ map.on('click',function(e){
   var b={n:naam,x:rdCoords[0],y:rdCoords[1],d:diepte,dia:dia,lat:lat,lng:lng,custom:true};
   data.push(b);
   addedPoints.push(b);
-
-  // Add marker
-  var m=L.circleMarker([lat,lng],{
-    radius:dia===45?8:6, fillColor:cc(diepte), color:'#fff',
-    weight:dia===45?2.5:1.5, fillOpacity:0.9
-  }).addTo(map);
-  m.bindPopup('<b>'+naam+'</b> (nieuw)<br>'+diepte+'m | \u00D8'+dia+'mm<br>RD: '+rdCoords[0]+', '+rdCoords[1]);
-  ms.push(m);
-  b._marker=m;
-
-  var lb=L.marker([lat,lng],{icon:L.divIcon({
-    className:'',iconSize:[0,0],
-    html:'<div style="font-size:8px;font-weight:700;color:#ff0;text-shadow:1px 1px 1px #000,-1px -1px 1px #000;transform:translate(-50%,-16px);text-align:center;white-space:nowrap">'+naam+'</div>'
-  })}).addTo(map);
-  ls.push(lb);
-  b._label=lb;
-
-  // Update featuregroup
-  grp=L.featureGroup(ms);
-
-  // Update table
-  refreshTable();
-
-  // Update totals
-  tot=data.reduce(function(s,d){return s+d.d;},0);
-  document.getElementById('info').innerHTML='<span><b>'+data.length+'</b> boringen</span><span><b>'+tot.toLocaleString('nl-NL')+'</b> boormeters</span><span>Gem: <b>'+Math.round(tot/data.length)+'m</b></span>';
+  attachPointLayers(b,'#ff0');
+  refreshPointDataViews();
 
   // Auto-increment name for next point
   var maxNum2=0;
@@ -264,20 +348,48 @@ window.undoLast=function(){
   // Remove marker & label
   if(b._marker){map.removeLayer(b._marker);var mi=ms.indexOf(b._marker);if(mi>=0)ms.splice(mi,1);}
   if(b._label){map.removeLayer(b._label);var li=ls.indexOf(b._label);if(li>=0)ls.splice(li,1);}
-  grp=L.featureGroup(ms);
-  refreshTable();
-  tot=data.reduce(function(s,d){return s+d.d;},0);
-  document.getElementById('info').innerHTML='<span><b>'+data.length+'</b> boringen</span><span><b>'+tot.toLocaleString('nl-NL')+'</b> boormeters</span><span>Gem: <b>'+Math.round(tot/data.length)+'m</b></span>';
+  refreshPointDataViews();
 };
 
 function refreshTable(){
   var h2='';data.forEach(function(b,i){
     var style=b.custom?'background:#e8f5e9;':'';
     var diaDisp=b.dia>0?b.dia:'-';
-    h2+='<tr style="'+style+'"><td>'+(i+1)+'</td><td><b>'+b.n+'</b>'+(b.custom?' 🆕':'')+'</td><td>'+b.x+'</td><td>'+b.y+'</td><td style="color:'+cc(b.d)+';font-weight:600">'+b.d+'m</td><td>'+diaDisp+'</td></tr>';
+    var diepteDisp=b.d>0?(b.d+'m'):'-';
+    h2+='<tr style="'+style+'"><td>'+(i+1)+'</td><td><b>'+esc(b.n)+'</b>'+(b.custom?' 🆕':'')+'</td><td>'+b.x+'</td><td>'+b.y+'</td><td style="color:'+cc(b.d)+';font-weight:600">'+diepteDisp+'</td><td>'+diaDisp+'</td></tr>';
   });
   document.getElementById('tb').innerHTML=h2;
 }
+
+window.closePointEdit=function(){
+  map.closePopup();
+};
+
+window.savePointEdit=function(idx){
+  var b=data[idx];
+  if(!b){alert('Punt niet gevonden');return;}
+
+  var naamEl=document.getElementById('editName_'+idx);
+  var diepteEl=document.getElementById('editDepth_'+idx);
+  var diaEl=document.getElementById('editDia_'+idx);
+  if(!naamEl||!diepteEl||!diaEl){alert('Popup niet gevonden');return;}
+
+  var naam=naamEl.value.trim();
+  var diepteRaw=String(diepteEl.value||'').replace(',','.').trim();
+  var diaRaw=String(diaEl.value||'').replace(',','.').trim();
+  var diepte=diepteRaw===''?0:parseFloat(diepteRaw);
+  var dia=diaRaw===''?0:parseFloat(diaRaw);
+
+  if(!naam){alert('Vul een boornummer in');return;}
+  if(isNaN(diepte)||diepte<0){alert('Vul een geldige diepte in');return;}
+  if(isNaN(dia)||dia<0){alert('Vul een geldige diameter in');return;}
+
+  b.n=naam;
+  b.d=Math.round(diepte*10)/10;
+  b.dia=Math.round(dia*10)/10;
+  refreshPointDataViews();
+  if(b._marker) b._marker.openPopup();
+};
 
 // === ADRES ZOEKEN (PDOK Locatieserver) ===
 var adresMarker=null;
@@ -375,13 +487,36 @@ window.exportPDF=function(){
     return{x:x,y:y};
   }
 
-  // Use current map view (what you see = what you print)
-  var bounds=map.getBounds();
-  var minLat=bounds.getSouth(), maxLat=bounds.getNorth();
-  var minLng=bounds.getWest(), maxLng=bounds.getEast();
-  var z=map.getZoom();
-  // Clamp zoom for tile quality
-  if(z<13)z=13; if(z>18)z=18;
+  // Auto-center on borehole points with padding — always north-up
+  var minLat,maxLat,minLng,maxLng,z;
+  if(data.length>0){
+    minLat=999;maxLat=-999;minLng=999;maxLng=-999;
+    data.forEach(function(b){
+      if(b.lat<minLat)minLat=b.lat;
+      if(b.lat>maxLat)maxLat=b.lat;
+      if(b.lng<minLng)minLng=b.lng;
+      if(b.lng>maxLng)maxLng=b.lng;
+    });
+    // Add 15% padding around borehole extent
+    var latPad=Math.max((maxLat-minLat)*0.15,0.0005);
+    var lngPad=Math.max((maxLng-minLng)*0.15,0.0008);
+    minLat-=latPad;maxLat+=latPad;
+    minLng-=lngPad;maxLng+=lngPad;
+    // Calculate optimal zoom to fit all points
+    // Target canvas ~4000px wide for high-res PDF output
+    var targetPxW=4000;
+    for(z=19;z>=13;z--){
+      var pxW=ll2px(minLat,maxLng,z).x-ll2px(minLat,minLng,z).x;
+      if(pxW<=targetPxW) break;
+    }
+  } else {
+    // Fallback: use current map view
+    var bounds=map.getBounds();
+    minLat=bounds.getSouth();maxLat=bounds.getNorth();
+    minLng=bounds.getWest();maxLng=bounds.getEast();
+    z=map.getZoom();
+  }
+  if(z<13)z=13; if(z>19)z=19;
   z=Math.round(z);
 
   // Get tile range
@@ -396,36 +531,86 @@ window.exportPDF=function(){
   var ctx=cvs.getContext('2d');
   ctx.fillStyle='#e8ecf1';ctx.fillRect(0,0,cW,cH);
 
-  // Tile URL based on active layer (CORS-enabled alternatives)
-  var tileUrls={
-    sat:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    hyb:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    map:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    osm:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+  // === WMS config for PDOK layers (single high-res image, QGIS/ArcGIS quality) ===
+  var wmsConfig={
+    pdoklucht:{url:'https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0',layer:'Actueel_orthoHR',format:'image/jpeg'},
+    pdoktopo:{url:'https://service.pdok.nl/brt/achtergrondkaart/wms/v2_0',layer:'standaard',format:'image/png'},
+    pdokkad:{url:'https://service.pdok.nl/kadaster/kadastralekaart/wms/v5_0',layer:'Kadastralekaart',format:'image/png'}
   };
-  var pdfTileUrl=tileUrls[curKey]||tileUrls.sat;
-  var totalT=(tSE.x-tNW.x+1)*(tSE.y-tNW.y+1);
-  var loadedT=0;
 
-  btn.textContent='Tiles 0/'+totalT+'...';
+  if(wmsConfig[curKey]){
+    // WMS approach: one single high-resolution image
+    var wms=wmsConfig[curKey];
+    btn.textContent='WMS kaart laden (hoge resolutie)...';
 
-  for(var tx=tNW.x;tx<=tSE.x;tx++){
-    for(var ty=tNW.y;ty<=tSE.y;ty++){
-      (function(tx,ty){
-        var img=new Image();
-        img.crossOrigin='anonymous';
-        img.onload=function(){
-          ctx.drawImage(img,(tx-tNW.x)*256,(ty-tNW.y)*256,256,256);
-          loadedT++;btn.textContent='Tiles '+loadedT+'/'+totalT+'...';
-          if(loadedT===totalT)finishPDF();
-        };
-        img.onerror=function(){
-          loadedT++;
-          if(loadedT===totalT)finishPDF();
-        };
-        var subs=['a','b','c'];
-        img.src=pdfTileUrl.replace('{z}',z).replace('{y}',ty).replace('{x}',tx).replace('{s}',subs[(tx+ty)%3]);
-      })(tx,ty);
+    // Convert tile-aligned canvas bounds to EPSG:3857 bbox
+    var nTiles=Math.pow(2,z);
+    var fullExt=40075016.68, halfExt=20037508.34;
+    var bboxMinX=tNW.x/nTiles*fullExt-halfExt;
+    var bboxMaxX=(tSE.x+1)/nTiles*fullExt-halfExt;
+    var bboxMaxY=halfExt-tNW.y/nTiles*fullExt;
+    var bboxMinY=halfExt-(tSE.y+1)/nTiles*fullExt;
+
+    var wmsUrl=wms.url+'?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'+
+      '&LAYERS='+encodeURIComponent(wms.layer)+
+      '&CRS=EPSG:3857'+
+      '&BBOX='+bboxMinX+','+bboxMinY+','+bboxMaxX+','+bboxMaxY+
+      '&WIDTH='+cW+'&HEIGHT='+cH+
+      '&FORMAT='+encodeURIComponent(wms.format)+
+      '&STYLES=';
+
+    var wmsImg=new Image();
+    wmsImg.crossOrigin='anonymous';
+    wmsImg.onload=function(){
+      ctx.drawImage(wmsImg,0,0,cW,cH);
+      btn.textContent='PDF maken...';
+      finishPDF();
+    };
+    wmsImg.onerror=function(){
+      // Fallback to tiles if WMS fails
+      btn.textContent='WMS mislukt, tiles laden...';
+      loadTilesAndFinish();
+    };
+    wmsImg.src=wmsUrl;
+  } else {
+    // Tile approach for non-PDOK layers
+    loadTilesAndFinish();
+  }
+
+  function loadTilesAndFinish(){
+    var tileUrls={
+      sat:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      hyb:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      map:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      osm:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      pdoklucht:'https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg',
+      pdoktopo:'https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/standaard/EPSG:3857/{z}/{x}/{y}.png',
+      pdokkad:'https://service.pdok.nl/kadaster/kadastralekaart/wmts/v5_0/Kadastralekaart/EPSG:3857/{z}/{x}/{y}.png'
+    };
+    var pdfTileUrl=tileUrls[curKey]||tileUrls.sat;
+    var totalT=(tSE.x-tNW.x+1)*(tSE.y-tNW.y+1);
+    var loadedT=0;
+
+    btn.textContent='Tiles 0/'+totalT+'...';
+
+    for(var ttx=tNW.x;ttx<=tSE.x;ttx++){
+      for(var tty=tNW.y;tty<=tSE.y;tty++){
+        (function(ttx,tty){
+          var img=new Image();
+          img.crossOrigin='anonymous';
+          img.onload=function(){
+            ctx.drawImage(img,(ttx-tNW.x)*256,(tty-tNW.y)*256,256,256);
+            loadedT++;btn.textContent='Tiles '+loadedT+'/'+totalT+'...';
+            if(loadedT===totalT)finishPDF();
+          };
+          img.onerror=function(){
+            loadedT++;
+            if(loadedT===totalT)finishPDF();
+          };
+          var subs=['a','b','c'];
+          img.src=pdfTileUrl.replace('{z}',z).replace('{y}',tty).replace('{x}',ttx).replace('{s}',subs[(ttx+tty)%3]);
+        })(ttx,tty);
+      }
     }
   }
 
@@ -543,36 +728,78 @@ window.exportPDF=function(){
     });
     var visTot=visible.reduce(function(s,d){return s+d.d;},0);
 
-    // Draw markers on canvas
+    // Crosshair markers + colored labels with background box
+    // Scale marker size relative to canvas (target ~4000px canvas, markers ~6px cross, ~14px font)
+    var scaleFactor=Math.max(1,cW/2000);
+    var crossSize=Math.round(4*scaleFactor);
+    var labelFontSize=Math.round(10*scaleFactor);
+
+    // Draw cross markers on canvas
     visible.forEach(function(b){
       var px=ll2px(b.lat,b.lng,z);
       var cx=px.x-originX, cy=px.y-originY;
-      var r=b.dia===45?6:4;
+      var color=cc(b.d);
 
-      // White outline
-      ctx.beginPath();ctx.arc(cx,cy,r+1.5,0,Math.PI*2);
-      ctx.fillStyle='#fff';ctx.fill();
-      // Colored fill
-      ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);
-      ctx.fillStyle=cc(b.d);ctx.fill();
-      ctx.strokeStyle='rgba(0,0,0,0.4)';ctx.lineWidth=0.8;ctx.stroke();
+      // White outline cross
+      ctx.strokeStyle='#fff';ctx.lineWidth=Math.round(3*scaleFactor);
+      ctx.beginPath();ctx.moveTo(cx-crossSize-1,cy);ctx.lineTo(cx+crossSize+1,cy);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(cx,cy-crossSize-1);ctx.lineTo(cx,cy+crossSize+1);ctx.stroke();
+      // Colored cross
+      ctx.strokeStyle=color;ctx.lineWidth=Math.round(1.5*scaleFactor);
+      ctx.beginPath();ctx.moveTo(cx-crossSize,cy);ctx.lineTo(cx+crossSize,cy);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(cx,cy-crossSize);ctx.lineTo(cx,cy+crossSize);ctx.stroke();
+    });
 
-      // Label above
-      ctx.font='bold 9px system-ui,sans-serif';
+    // Calculate label positions with collision avoidance
+    var labels=[];
+    visible.forEach(function(b){
+      var px=ll2px(b.lat,b.lng,z);
+      var cx=px.x-originX, cy=px.y-originY;
+      labels.push({b:b,cx:cx,cy:cy,nameX:cx,nameY:cy-crossSize-Math.round(6*scaleFactor)});
+    });
+
+    // Resolve overlaps: spread apart horizontally + vertically
+    for(var i=0;i<labels.length;i++){
+      for(var j=i+1;j<labels.length;j++){
+        var a=labels[i], bL=labels[j];
+        var colDist=Math.round(55*scaleFactor);
+        if(Math.abs(a.cx-bL.cx)<colDist && Math.abs(a.nameY-bL.nameY)<(labelFontSize+4)){
+          var spread=Math.max(Math.round(40*scaleFactor),Math.round(60*scaleFactor)-Math.abs(a.cx-bL.cx));
+          a.nameX=a.cx-spread;
+          bL.nameX=bL.cx+spread;
+          if(Math.abs(a.nameY-bL.nameY)<(labelFontSize+4)){
+            a.nameY=Math.min(a.nameY,bL.nameY)-(labelFontSize+4);
+          }
+        }
+      }
+    }
+
+    // Draw labels + leader lines
+    ctx.font='bold '+labelFontSize+'px system-ui,sans-serif';
+    labels.forEach(function(lbl){
+      // Leader line if label is offset from marker
+      if(Math.abs(lbl.nameX-lbl.cx)>10){
+        ctx.beginPath();
+        ctx.moveTo(lbl.cx,lbl.cy-crossSize);
+        ctx.lineTo(lbl.nameX,lbl.nameY+4);
+        ctx.strokeStyle='rgba(30,58,95,0.4)';ctx.lineWidth=Math.max(1,scaleFactor);
+        ctx.stroke();
+      }
+
+      // Measure text for background box
+      var textW=ctx.measureText(lbl.b.n).width;
+      var boxPad=Math.round(3*scaleFactor);
+      // White background box
+      ctx.fillStyle='rgba(255,255,255,0.85)';
+      ctx.fillRect(lbl.nameX-textW/2-boxPad,lbl.nameY-labelFontSize+1,textW+boxPad*2,labelFontSize+2);
+      // Dark blue text
       ctx.textAlign='center';
-      ctx.strokeStyle='rgba(0,0,0,0.7)';ctx.lineWidth=2.5;
-      ctx.strokeText(b.n,cx,cy-r-4);
-      ctx.fillStyle='#fff';ctx.fillText(b.n,cx,cy-r-4);
-
-      // Depth below
-      ctx.font='bold 7px system-ui,sans-serif';
-      ctx.strokeStyle='rgba(0,0,0,0.6)';ctx.lineWidth=2;
-      ctx.strokeText(b.d+'m',cx,cy+r+9);
-      ctx.fillStyle='#fff';ctx.fillText(b.d+'m',cx,cy+r+9);
+      ctx.fillStyle='#1e3a5f';
+      ctx.fillText(lbl.b.n,lbl.nameX,lbl.nameY);
     });
 
     // Get image
-    var imgData=cvs.toDataURL('image/jpeg',0.92);
+    var imgData=cvs.toDataURL('image/png');
 
     // Build PDF
     var jsPDF=window.jspdf.jsPDF;
@@ -582,64 +809,115 @@ window.exportPDF=function(){
     var datum=nu.getDate()+'-'+(nu.getMonth()+1)+'-'+nu.getFullYear();
 
     // --- PAGE 1: KAART ---
-    // Header
-    pdf.setFillColor(30,58,95);
-    pdf.rect(0,0,pw,14,'F');
-    pdf.setTextColor(255,255,255);
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica','bold');
-    pdf.text('Boorpunt Tekening \u2014 Overzicht Bronsystemen',mg,10);
-    pdf.setFontSize(8);
-    pdf.setFont('helvetica','normal');
-    pdf.text('Ground Research BV  |  '+datum,pw-mg,10,{align:'right'});
+    // --- PAGE 1: KAART + RECHTER INFOPANEEL ---
+    var panelW=52;
+    var gap=4;
+    var mapX=mg;
+    var mapY=mg;
+    var mapW=pw-mg-panelW-gap-mg;
+    var mapH=ph-2*mg;
+    var panelX=mapX+mapW+gap;
+    var panelY=mg;
+    var panelH=mapH;
 
-    // Info
-    pdf.setTextColor(30,58,95);
-    pdf.setFontSize(8);
-    var infoTxt=visible.length+' boringen';
-    if(visible.length<data.length) infoTxt+=' (van '+data.length+' totaal)';
-    infoTxt+='  |  '+visTot.toLocaleString('nl-NL')+' boormeters  |  Gem: '+Math.round(visTot/visible.length)+'m';
-    pdf.text(infoTxt,mg,20);
-
-    // Map image - fill as much page as possible
-    var mapY=23, mapMaxH=ph-mapY-22;
-    var mapW=pw-2*mg;
-    var mapH=mapW*(cH/cW);
-    if(mapH>mapMaxH){mapH=mapMaxH;mapW=mapH*(cW/cH);}
-    var mapX=(pw-mapW)/2;
-    pdf.addImage(imgData,'JPEG',mapX,mapY,mapW,mapH);
-    // Border
-    pdf.setDrawColor(30,58,95);pdf.setLineWidth(0.3);
+    // Grote kaart links
+    pdf.addImage(imgData,'PNG',mapX,mapY,mapW,mapH);
+    pdf.setDrawColor(40,40,40);pdf.setLineWidth(0.35);
     pdf.rect(mapX,mapY,mapW,mapH,'S');
 
-    // Legend below map — dynamisch op basis van data
-    var ly=mapY+mapH+4;
-    pdf.setFontSize(6.5);pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);
+    // Rechterpaneel
+    pdf.setFillColor(247,249,244);
+    pdf.rect(panelX,panelY,panelW,panelH,'F');
+    pdf.setDrawColor(160,170,155);pdf.setLineWidth(0.25);
+    pdf.rect(panelX,panelY,panelW,panelH,'S');
 
-    // Boorpunt diepte legenda (dynamisch)
-    if(visible.length>0&&colorScale.ranges.length>0){
-      pdf.text('Diepte:',mg,ly);
-      var lx=mg+13;
-      pdf.setFont('helvetica','normal');
-      colorScale.ranges.forEach(function(r,i){
-        var hex=r.color;
-        var c1=parseInt(hex.slice(1,3),16),c2=parseInt(hex.slice(3,5),16),c3=parseInt(hex.slice(5,7),16);
-        pdf.setFillColor(c1,c2,c3);pdf.circle(lx,ly-1,1.2,'F');
-        var label;
-        if(colorScale.ranges.length===1) label=r.from+'m';
-        else if(i===colorScale.ranges.length-1) label='>='+r.from+'m';
-        else label=r.from+'-'+r.to+'m';
-        pdf.setTextColor(60,60,60);pdf.text(label,lx+2.2,ly);lx+=22;
-      });
-      ly+=4;
+    var tx=panelX+4;
+    var ty=panelY+8;
+
+    // Logo / titel
+    pdf.setTextColor(90,145,56);
+    pdf.setFont('helvetica','bold');pdf.setFontSize(10);
+    pdf.text('Ground Research BV',tx,ty);
+    ty+=4;
+    pdf.setTextColor(40,40,40);
+    pdf.setFont('helvetica','bold');pdf.setFontSize(8);
+    pdf.text('Boorpunt Tekening',tx,ty);
+
+    // Project info
+    ty+=6;
+    pdf.setFont('helvetica','normal');pdf.setFontSize(7.5);
+    pdf.setTextColor(70,70,70);
+    pdf.text('Projectnr: '+(currentProjectNr||'-'),tx,ty);
+    ty+=4;
+    var klantTxt='Klant: '+(currentKlant||'-');
+    if(klantTxt.length>45) klantTxt=klantTxt.slice(0,45)+'...';
+    pdf.text(klantTxt,tx,ty);
+    ty+=4;
+    pdf.text('Datum: '+datum,tx,ty);
+
+    // Schaalbalk op basis van zoom en latitude
+    ty+=6;
+    pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);pdf.setFontSize(7.5);
+    pdf.text('Schaal',tx,ty);
+    ty+=3.5;
+    var center=map.getCenter();
+    var mPerPx=(156543.03*Math.cos(center.lat*Math.PI/180))/Math.pow(2,z);
+    var targetPx=120;
+    var targetM=mPerPx*targetPx;
+    var steps=[1,2,5];
+    var pow10=Math.pow(10,Math.floor(Math.log(targetM)/Math.log(10)));
+    var nice=pow10;
+    for(var si=0;si<steps.length;si++){
+      if(steps[si]*pow10>=targetM){nice=steps[si]*pow10;break;}
     }
+    var barPx=nice/mPerPx;
+    var barW=Math.max(18,Math.min(38,barPx*(mapW/cW)));
+    var barX=tx,barY=ty+1.5;
+    pdf.setDrawColor(40,40,40);pdf.setLineWidth(0.45);
+    pdf.line(barX,barY,barX+barW,barY);
+    pdf.line(barX,barY-1.2,barX,barY+1.2);
+    pdf.line(barX+barW/2,barY-1.2,barX+barW/2,barY+1.2);
+    pdf.line(barX+barW,barY-1.2,barX+barW,barY+1.2);
+    pdf.setFont('helvetica','normal');pdf.setTextColor(70,70,70);pdf.setFontSize(6.8);
+    pdf.text('0',barX,barY+3.2);
+    pdf.text(Math.round(nice/2)+'m',barX+barW/2,barY+3.2,{align:'center'});
+    pdf.text(Math.round(nice)+'m',barX+barW,barY+3.2,{align:'right'});
+
+    // North arrow
+    ty=barY+8;
+    pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);pdf.setFontSize(7.5);
+    pdf.text('Noord',tx,ty);
+    var nx=tx+8, ny=ty+2;
+    pdf.setDrawColor(30,30,30);pdf.setLineWidth(0.5);
+    pdf.line(nx,ny+8,nx,ny-3);
+    pdf.triangle(nx,ny-5,nx-2.1,ny-1.2,nx+2.1,ny-1.2,'F');
+    pdf.setFontSize(9);pdf.setTextColor(30,30,30);
+    pdf.text('N',nx,ny-6.5,{align:'center'});
+
+    // Diepte legenda
+    ty+=15;
+    pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);pdf.setFontSize(7.5);
+    pdf.text('Diepte legenda',tx,ty);
+    ty+=3.5;
+    pdf.setFont('helvetica','normal');pdf.setFontSize(6.8);
+    colorScale.ranges.forEach(function(r,i){
+      if(ty>panelY+panelH-24) return;
+      var hex=r.color;
+      var c1=parseInt(hex.slice(1,3),16),c2=parseInt(hex.slice(3,5),16),c3=parseInt(hex.slice(5,7),16);
+      pdf.setFillColor(c1,c2,c3);pdf.circle(tx+1.4,ty-0.7,1.2,'F');
+      var label;
+      if(colorScale.ranges.length===1) label=r.from+'m';
+      else if(i===colorScale.ranges.length-1) label='>='+r.from+'m';
+      else label=r.from+'-'+r.to+'m';
+      pdf.setTextColor(70,70,70);pdf.text(label,tx+4.5,ty);
+      ty+=3.3;
+    });
 
     // KLIC legenda
     var klicLegenItems=[];
     klicLayers.forEach(function(kl){
       kl.layers.forEach(function(layer){
         if(layer.type==='line'&&layer.overlay&&map.hasLayer(layer.overlay)){
-          // Voorkom duplicaten
           var exists=klicLegenItems.some(function(item){return item.label===layer.name&&item.color===layer.color;});
           if(!exists) klicLegenItems.push({color:layer.color,label:layer.name});
         }
@@ -650,34 +928,44 @@ window.exportPDF=function(){
       });
     });
 
-    if(klicLegenItems.length>0){
-      pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);
-      pdf.text('KLIC:',mg,ly);
-      var klx=mg+11;
-      pdf.setFont('helvetica','normal');
+    if(ty<panelY+panelH-24){
+      ty+=1;
+      pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);pdf.setFontSize(7.5);
+      pdf.text('KLIC',tx,ty);
+      ty+=3.5;
+      pdf.setFont('helvetica','normal');pdf.setTextColor(70,70,70);pdf.setFontSize(6.5);
       klicLegenItems.forEach(function(item){
+        if(ty>panelY+panelH-18) return;
         var hex=item.color;
         var c1=parseInt(hex.slice(1,3),16),c2=parseInt(hex.slice(3,5),16),c3=parseInt(hex.slice(5,7),16);
         pdf.setDrawColor(c1,c2,c3);pdf.setLineWidth(0.8);
         if(item.dashed){
-          // Stippellijn voor graafgebied
-          for(var di=0;di<4;di++){
-            pdf.line(klx+di*2,ly-1,klx+di*2+1,ly-1);
-          }
+          for(var di=0;di<4;di++) pdf.line(tx+di*2,ty-1,tx+di*2+1,ty-1);
         } else {
-          pdf.line(klx,ly-1,klx+6,ly-1);
+          pdf.line(tx,ty-1,tx+6,ty-1);
         }
-        pdf.setTextColor(60,60,60);pdf.text(item.label,klx+8,ly);klx+=28;
-        // Wrap naar volgende regel als te breed
-        if(klx>pw-mg-20){klx=mg+11;ly+=3.5;}
+        var lbl=item.label||'';
+        if(lbl.length>24) lbl=lbl.slice(0,24)+'...';
+        pdf.text(lbl,tx+8,ty);
+        ty+=3;
       });
-      ly+=4;
     }
 
+    // Statistieken onderin paneel
+    var avg=visible.length?Math.round(visTot/visible.length):0;
+    var statsY=panelY+panelH-13;
+    pdf.setDrawColor(190,200,188);pdf.setLineWidth(0.2);
+    pdf.line(tx,statsY-2,panelX+panelW-4,statsY-2);
+    pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);pdf.setFontSize(7.2);
+    pdf.text('Statistieken',tx,statsY);
+    pdf.setFont('helvetica','normal');pdf.setTextColor(70,70,70);pdf.setFontSize(6.8);
+    pdf.text('Boringen: '+visible.length+(visible.length<data.length?' / '+data.length:''),tx,statsY+3.5);
+    pdf.text('Boormeters: '+visTot.toLocaleString('nl-NL')+' m',tx,statsY+7);
+    pdf.text('Gem. diepte: '+avg+' m',tx,statsY+10.5);
+
     // Footer
-    pdf.setTextColor(150,150,150);pdf.setFontSize(5.5);
-    pdf.text('Ground Research BV \u2014 Vrijheidweg 45, 1521RP Wormerveer',mg,ph-3);
-    pdf.text(datum,pw-mg,ph-3,{align:'right'});
+    pdf.setTextColor(140,140,140);pdf.setFontSize(5.8);
+    pdf.text('Ground Research BV \u2014 Vrijheidweg 45, 1521RP Wormerveer',mg,ph-2.8);
 
     // --- PAGE 2: TABEL ---
     pdf.addPage();
@@ -931,34 +1219,11 @@ function processRows(headers,rows,fileName){
           dia=defaultDia;
         }
 
-        // Type-based styling
-        var isPeilbuis=(typeLower==='pb'||typeLower==='peilbuis'||typeLower==='monitoring');
-        var markerColor=isPeilbuis?'#ff6f00':cc(diepte);
-        var markerShape=isPeilbuis?'diamond':'circle';
-
         var ll=rd(rdX,rdY);
         var b={n:naam,x:rdX,y:rdY,d:diepte,dia:dia,lat:ll[0],lng:ll[1],custom:true,csv:true,type:type};
         data.push(b);
         addedPoints.push(b);
-
-        var markerRadius=isPeilbuis?5:(dia>42?8:dia>0?6:5);
-        var markerOpts={
-          radius:markerRadius,
-          fillColor:markerColor,color:isPeilbuis?'#000':'#fff',
-          weight:isPeilbuis?2:(dia>42?2.5:1.5),fillOpacity:0.9
-        };
-        var m=L.circleMarker([b.lat,b.lng],markerOpts).addTo(map);
-        var typeLabel=type?(' ['+type+']'):'';
-        var diaLabel=dia>0?('\u00D8'+dia+'mm'):'\u2300 onbekend';
-        var diepteLabel=diepte>0?(diepte+'m'):'diepte onbekend';
-        m.bindPopup('<b>'+naam+'</b>'+typeLabel+'<br>'+diepteLabel+' | '+diaLabel+'<br>RD: '+rdX+', '+rdY);
-        ms.push(m);b._marker=m;
-
-        var lb=L.marker([b.lat,b.lng],{icon:L.divIcon({
-          className:'',iconSize:[0,0],
-          html:'<div style="font-size:8px;font-weight:700;color:#0ff;text-shadow:1px 1px 1px #000,-1px -1px 1px #000;transform:translate(-50%,-16px);text-align:center;white-space:nowrap">'+naam+'</div>'
-        })}).addTo(map);
-        ls.push(lb);b._label=lb;
+        attachPointLayers(b,'#0ff');
 
         imported++;
       }
@@ -966,14 +1231,7 @@ function processRows(headers,rows,fileName){
       // Update
       grp=L.featureGroup(ms);
       if(imported>0) map.fitBounds(grp.getBounds().pad(0.12));
-      buildColorScale();
-      refreshTable();
-      // Recolor all existing markers to match new color scale
-      data.forEach(function(b,i){
-        if(ms[i]&&ms[i].setStyle) ms[i].setStyle({fillColor:cc(b.d)});
-      });
-      tot=data.reduce(function(s,d){return s+d.d;},0);
-      document.getElementById('info').innerHTML='<span><b>'+data.length+'</b> boringen</span><span><b>'+tot.toLocaleString('nl-NL')+'</b> boormeters</span><span>Gem: <b>'+Math.round(tot/data.length)+'m</b></span>';
+      refreshPointDataViews();
 
       csvStatusEl.style.color='#2e7d32';
       csvStatusEl.textContent='✅ '+imported+' punten geïmporteerd uit '+fileName+(skipped>0?' ('+skipped+' overgeslagen)':'');
@@ -981,6 +1239,11 @@ function processRows(headers,rows,fileName){
 
 // === KLIC IMPORT ===
 var klicLayers=[]; // array of {name, layers[], visible}
+
+// Create a custom pane for KLIC overlays so they don't block map clicks
+map.createPane('klicPane');
+map.getPane('klicPane').style.zIndex = 350; // between overlayPane (400) and tilePane (200)
+map.getPane('klicPane').style.pointerEvents = 'none';
 var klicDropEl=document.getElementById('klicDrop');
 var klicFileEl=document.getElementById('klicFile');
 var klicStatusEl=document.getElementById('klicStatus');
@@ -1085,7 +1348,7 @@ function processKlicZip(file){
                   var ne=rd(rdMaxX,rdMaxY);
 
                   var bounds=[[sw[0],sw[1]],[ne[0],ne[1]]];
-                  var overlay=L.imageOverlay(imgData,bounds,{opacity:0.7,interactive:false});
+                  var overlay=L.imageOverlay(imgData,bounds,{opacity:0.7,interactive:false,pane:'klicPane'});
                   overlay.addTo(map);
 
                   // Extract layer name from path
@@ -1354,7 +1617,7 @@ function parseKlicGML(text,path,klicEntry){
       });
     });
     if(lineCoords.length>0){
-      var multiLine=L.polyline(lineCoords,{color:thema.color,weight:2.5,opacity:0.85});
+      var multiLine=L.polyline(lineCoords,{color:thema.color,weight:2.5,opacity:0.85,interactive:false,pane:'klicPane'});
       multiLine.addTo(map);
       var layerName=thema.label;
       multiLine.bindPopup('<b>'+layerName+'</b><br>'+lineCoords.length+' segmenten');
@@ -1381,7 +1644,7 @@ function parseKlicXML(text,path,klicEntry){
       pls.forEach(function(pl){
         var latlngs=parseRDCoords(pl.textContent);
         if(latlngs.length>=3){
-          var poly=L.polygon(latlngs,{color:'#ff6f00',weight:3,fillColor:'#ff6f00',fillOpacity:0.08,dashArray:'10,5'});
+          var poly=L.polygon(latlngs,{color:'#ff6f00',weight:3,fillColor:'#ff6f00',fillOpacity:0.08,dashArray:'10,5',interactive:false,pane:'klicPane'});
           poly.addTo(map);
           poly.bindPopup('<b>Graafgebied</b>');
           klicEntry.layers.push({name:'Graafgebied',overlay:poly,type:'polygon',color:'#ff6f00'});
@@ -1400,7 +1663,7 @@ function parseKlicXML(text,path,klicEntry){
         if(pls.length>0){
           var latlngs=parseRDCoords(pls[0].textContent);
           if(latlngs.length>=3){
-            var poly=L.polygon(latlngs,{color:'#90a4ae',weight:1.5,fillColor:'#90a4ae',fillOpacity:0.05,dashArray:'4,4'});
+            var poly=L.polygon(latlngs,{color:'#90a4ae',weight:1.5,fillColor:'#90a4ae',fillOpacity:0.05,dashArray:'4,4',interactive:false,pane:'klicPane'});
             poly.addTo(map);
             poly.bindPopup('<b>Informatiegebied</b>');
             klicEntry.layers.push({name:'Informatiegebied',overlay:poly,type:'polygon',color:'#90a4ae'});
@@ -1459,7 +1722,7 @@ function parseKlicXML(text,path,klicEntry){
       var grp=netGroups[key];
       if(grp.lines.length===0) return;
       console.log('KLIC: Laag "'+grp.label+'" → '+grp.lines.length+' segmenten, kleur: '+grp.color);
-      var multiLine=L.polyline(grp.lines,{color:grp.color,weight:3,opacity:0.9});
+      var multiLine=L.polyline(grp.lines,{color:grp.color,weight:3,opacity:0.9,interactive:false,pane:'klicPane'});
       multiLine.addTo(map);
       multiLine.bindPopup('<b>'+grp.label+'</b><br>'+grp.lines.length+' segmenten');
       klicEntry.layers.push({name:grp.label,overlay:multiLine,type:'line',color:grp.color});
@@ -1797,6 +2060,31 @@ window.updateKlantSuggesties=function(){
   if(dl) dl.innerHTML=Object.keys(klanten).map(function(k){return '<option value="'+k+'">';}).join('');
 };
 
+// Sync Supabase projects into localStorage on init
+(function syncSupabaseProjects(){
+  if(!window.__supabaseData) return;
+  var sbData=window.__supabaseData;
+  var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
+  var changed=false;
+  // Find all project_ keys in Supabase data
+  Object.keys(sbData).forEach(function(key){
+    if(key.indexOf('project_')===0 && sbData[key]){
+      var projectKey=key.substring(8); // remove 'project_' prefix
+      // Supabase version wins if newer or if not in localStorage
+      var sbProj=sbData[key];
+      var lsProj=allProjects[projectKey];
+      if(!lsProj || (sbProj.savedAt && (!lsProj.savedAt || sbProj.savedAt > lsProj.savedAt))){
+        allProjects[projectKey]=sbProj;
+        changed=true;
+      }
+    }
+  });
+  if(changed){
+    localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
+    console.log('Boorpunt: synced projects from Supabase to localStorage');
+  }
+})();
+
 window.saveProject=function(){
   var nr=document.getElementById('projectNr').value.trim();
   var klant=document.getElementById('klantNaam').value.trim();
@@ -1885,23 +2173,11 @@ window.loadProject=function(nr){
 
   // Second pass: create markers with correct colors
   data.forEach(function(item){
-    var m=L.circleMarker([item.lat,item.lng],{
-      radius:item.dia>42?8:6,fillColor:cc(item.d),color:'#fff',
-      weight:item.dia>42?2.5:1.5,fillOpacity:0.9
-    }).addTo(map);
-    m.bindPopup('<b>'+item.n+'</b><br>'+item.d+'m | \u2300'+(item.dia||'?')+'mm<br>RD: '+item.x+', '+item.y);
-    ms.push(m);item._marker=m;
-    var lb=L.marker([item.lat,item.lng],{icon:L.divIcon({
-      className:'',iconSize:[0,0],
-      html:'<div style="font-size:8px;font-weight:700;color:#fff;text-shadow:1px 1px 1px #000,-1px -1px 1px #000;transform:translate(-50%,-16px);text-align:center;white-space:nowrap">'+item.n+'</div>'
-    })}).addTo(map);
-    ls.push(lb);item._label=lb;
+    attachPointLayers(item,'#fff');
   });
   grp=L.featureGroup(ms);
   if(ms.length>0) map.fitBounds(grp.getBounds().pad(0.12));
-  refreshTable();
-  tot=data.reduce(function(s,d){return s+d.d;},0);
-  document.getElementById('info').innerHTML='<span><b>'+data.length+'</b> boringen</span><span><b>'+tot.toLocaleString('nl-NL')+'</b> boormeters</span><span>Gem: <b>'+Math.round(tot/data.length)+'m</b></span>';
+  refreshPointDataViews();
   // Restore KLIC layers if saved
   if(proj.klicLayers&&proj.klicLayers.length>0){
     restoreKlicLayers(proj.klicLayers);
@@ -2008,11 +2284,14 @@ window.exportDropbox=function(){
 };
 
 } catch(e) {
-  var s=document.getElementById('status');
-  s.style.display='block';
-  s.style.background='#ffebee';
-  s.style.color='#c62828';
-  s.textContent='FOUT: '+e.message;
+  if(e && e.__skip) { /* map already loaded, no error */ }
+  else {
+    var s=document.getElementById('status');
+    s.style.display='block';
+    s.style.background='#ffebee';
+    s.style.color='#c62828';
+    s.textContent='FOUT: '+e.message;
+  }
 }
 // PWA Service Worker
 if ('serviceWorker' in navigator) {
