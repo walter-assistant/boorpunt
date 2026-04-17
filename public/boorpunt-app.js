@@ -523,13 +523,7 @@ window.exportPDF=function(){
   var tNW=ll2tile(maxLat,minLng,z), tSE=ll2tile(minLat,maxLng,z);
   var pxNW=ll2px(maxLat,minLng,z), pxSE=ll2px(minLat,maxLng,z);
   var originX=tNW.x*256, originY=tNW.y*256;
-  var cW=(tSE.x-tNW.x+1)*256, cH=(tSE.y-tNW.y+1)*256;
-
-  // Create canvas
-  var cvs=document.createElement('canvas');
-  cvs.width=cW;cvs.height=cH;
-  var ctx=cvs.getContext('2d');
-  ctx.fillStyle='#e8ecf1';ctx.fillRect(0,0,cW,cH);
+  var baseCW=(tSE.x-tNW.x+1)*256, baseCH=(tSE.y-tNW.y+1)*256;
 
   // === WMS config for PDOK layers (single high-res image, QGIS/ArcGIS quality) ===
   var wmsConfig={
@@ -538,12 +532,28 @@ window.exportPDF=function(){
     pdokkad:{url:'https://service.pdok.nl/kadaster/kadastralekaart/wms/v5_0',layer:'Kadastralekaart',format:'image/png'}
   };
 
+  // For WMS: scale canvas to high resolution independent of tile grid
+  var pxScale=1;
+  if(wmsConfig[curKey]){
+    var wmsTargetW=5000;
+    if(baseCW<wmsTargetW){
+      pxScale=wmsTargetW/baseCW;
+    }
+  }
+  var cW=Math.round(baseCW*pxScale), cH=Math.round(baseCH*pxScale);
+
+  // Create canvas
+  var cvs=document.createElement('canvas');
+  cvs.width=cW;cvs.height=cH;
+  var ctx=cvs.getContext('2d');
+  ctx.fillStyle='#e8ecf1';ctx.fillRect(0,0,cW,cH);
+
   if(wmsConfig[curKey]){
     // WMS approach: one single high-resolution image
     var wms=wmsConfig[curKey];
     btn.textContent='WMS kaart laden (hoge resolutie)...';
 
-    // Convert tile-aligned canvas bounds to EPSG:3857 bbox
+    // Convert tile-aligned bounds to EPSG:3857 bbox
     var nTiles=Math.pow(2,z);
     var fullExt=40075016.68, halfExt=20037508.34;
     var bboxMinX=tNW.x/nTiles*fullExt-halfExt;
@@ -567,8 +577,11 @@ window.exportPDF=function(){
       finishPDF();
     };
     wmsImg.onerror=function(){
-      // Fallback to tiles if WMS fails
+      // Fallback to tiles if WMS fails — reset to tile dimensions
       btn.textContent='WMS mislukt, tiles laden...';
+      pxScale=1; cW=baseCW; cH=baseCH;
+      cvs.width=cW; cvs.height=cH;
+      ctx.fillStyle='#e8ecf1'; ctx.fillRect(0,0,cW,cH);
       loadTilesAndFinish();
     };
     wmsImg.src=wmsUrl;
@@ -618,10 +631,10 @@ window.exportPDF=function(){
     btn.textContent='PDF maken...';
 
     // === Draw KLIC layers on canvas ===
-    // Helper: lat/lng to canvas pixel
+    // Helper: lat/lng to canvas pixel (scaled for WMS)
     function ll2cvs(lat,lng){
       var px=ll2px(lat,lng,z);
-      return{x:px.x-originX,y:px.y-originY};
+      return{x:(px.x-originX)*pxScale,y:(px.y-originY)*pxScale};
     }
 
     // Draw KLIC PNG overlays
@@ -673,8 +686,8 @@ window.exportPDF=function(){
               });
               ctx.closePath();
               ctx.strokeStyle=layer.color||'#ff6f00';
-              ctx.lineWidth=2;
-              ctx.setLineDash([8,4]);
+              ctx.lineWidth=Math.max(2,2*pxScale);
+              ctx.setLineDash([8*pxScale,4*pxScale]);
               ctx.stroke();
               ctx.setLineDash([]);
               ctx.fillStyle=(layer.color||'#ff6f00')+'20';
@@ -684,7 +697,7 @@ window.exportPDF=function(){
 
           if(layer.type==='line'&&layer.overlay.getLatLngs){
             ctx.strokeStyle=layer.color||'#666';
-            ctx.lineWidth=2;
+            ctx.lineWidth=Math.max(2,2*pxScale);
             ctx.globalAlpha=0.85;
             var allLines=layer.overlay.getLatLngs();
             allLines.forEach(function(segment){
@@ -714,16 +727,16 @@ window.exportPDF=function(){
   }
 
   function continueFinishPDF(){
-    // Helper: lat/lng to canvas pixel (re-define for this scope)
+    // Helper: lat/lng to canvas pixel (re-define for this scope, scaled for WMS)
     function ll2cvs(lat,lng){
       var px=ll2px(lat,lng,z);
-      return{x:px.x-originX,y:px.y-originY};
+      return{x:(px.x-originX)*pxScale,y:(px.y-originY)*pxScale};
     }
 
     // Filter: only boreholes visible in current view
     var visible=data.filter(function(b){
       var px=ll2px(b.lat,b.lng,z);
-      var cx=px.x-originX, cy=px.y-originY;
+      var cx=(px.x-originX)*pxScale, cy=(px.y-originY)*pxScale;
       return cx>=0 && cx<=cW && cy>=0 && cy<=cH;
     });
     var visTot=visible.reduce(function(s,d){return s+d.d;},0);
@@ -737,7 +750,7 @@ window.exportPDF=function(){
     // Draw cross markers on canvas
     visible.forEach(function(b){
       var px=ll2px(b.lat,b.lng,z);
-      var cx=px.x-originX, cy=px.y-originY;
+      var cx=(px.x-originX)*pxScale, cy=(px.y-originY)*pxScale;
       var color=cc(b.d);
 
       // White outline cross
@@ -754,7 +767,7 @@ window.exportPDF=function(){
     var labels=[];
     visible.forEach(function(b){
       var px=ll2px(b.lat,b.lng,z);
-      var cx=px.x-originX, cy=px.y-originY;
+      var cx=(px.x-originX)*pxScale, cy=(px.y-originY)*pxScale;
       labels.push({b:b,cx:cx,cy:cy,nameX:cx,nameY:cy-crossSize-Math.round(6*scaleFactor)});
     });
 
