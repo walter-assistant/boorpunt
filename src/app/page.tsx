@@ -45,6 +45,12 @@ export default function Page() {
       (window as any).__supabaseSave = (key: string, value: unknown) => {
         saveUserData(session.user.id, key, value);
       };
+      // Live reload function: fetch fresh data from Supabase
+      (window as any).__supabaseLoad = async () => {
+        const fresh = await loadUserData(session.user.id);
+        (window as any).__supabaseData = fresh;
+        return fresh;
+      };
       (window as any).__supabaseUserId = session.user.id;
       setDataLoaded(true);
     };

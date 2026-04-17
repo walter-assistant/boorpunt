@@ -2141,31 +2141,41 @@ window.saveProject=function(){
   document.getElementById('projectStatus').style.color='#2e7d32';
 };
 
-window.loadProjectList=function(){
+window.loadProjectList=async function(){
   var listEl=document.getElementById('projectList');
   listEl.style.display='block';
   var allProjects=JSON.parse(localStorage.getItem('boorpunt_projects')||'{}');
   var keys=Object.keys(allProjects);
 
-  // Als localStorage leeg is, probeer opnieuw te synchen vanuit Supabase
-  if(keys.length===0 && window.__supabaseData){
-    var sbData=window.__supabaseData;
-    Object.keys(sbData).forEach(function(key){
-      if(key.indexOf('project_')===0 && sbData[key]){
-        var projectKey=key.substring(8);
-        allProjects[projectKey]=sbData[key];
+  // Als localStorage leeg of weinig projecten: live herladen uit Supabase
+  if(keys.length<=1 && window.__supabaseLoad){
+    listEl.innerHTML='<span style="color:#1565c0">⏳ Projecten ophalen uit cloud...</span>';
+    try{
+      var freshData=await window.__supabaseLoad();
+      var pullCount=0;
+      Object.keys(freshData).forEach(function(key){
+        if(key.indexOf('project_')===0 && freshData[key]){
+          var projectKey=key.substring(8);
+          var sbProj=freshData[key];
+          var lsProj=allProjects[projectKey];
+          if(!lsProj || (sbProj.savedAt && (!lsProj.savedAt || sbProj.savedAt>lsProj.savedAt))){
+            allProjects[projectKey]=sbProj;
+            pullCount++;
+          }
+        }
+      });
+      if(pullCount>0){
+        localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
+        console.log('Boorpunt: '+pullCount+' projecten live opgehaald uit Supabase');
       }
-    });
-    keys=Object.keys(allProjects);
-    if(keys.length>0){
-      localStorage.setItem('boorpunt_projects',JSON.stringify(allProjects));
-      console.log('Boorpunt: '+keys.length+' projecten hersteld uit Supabase bij laden');
+      keys=Object.keys(allProjects);
+    }catch(e){
+      console.error('Supabase live load mislukt:',e);
     }
   }
 
   if(keys.length===0){
-    listEl.innerHTML='<span style="color:#666">Geen opgeslagen projecten. ' +
-      (window.__supabaseData ? 'Supabase bevat ook geen projecten voor dit account.' : 'Niet ingelogd?') + '</span>';
+    listEl.innerHTML='<span style="color:#666">Geen opgeslagen projecten gevonden (lokaal noch in cloud).</span>';
     return;
   }
   // Groepeer per klant
