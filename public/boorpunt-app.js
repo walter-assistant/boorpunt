@@ -525,6 +525,9 @@ window.exportPDF=function(){
   var originX=tNW.x*256, originY=tNW.y*256;
   var baseCW=(tSE.x-tNW.x+1)*256, baseCH=(tSE.y-tNW.y+1)*256;
 
+  // PDF altijd met echte orthofoto van bovenaf renderen, ongeacht huidige kaartlaag
+  var exportBaseKey=(curKey==='pdoktopo'||curKey==='pdokkad'||curKey==='osm'||curKey==='map')?curKey:'pdoklucht';
+
   // === WMS config for PDOK layers (single high-res image, QGIS/ArcGIS quality) ===
   var wmsConfig={
     pdoklucht:{url:'https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0',layer:'Actueel_orthoHR',format:'image/jpeg'},
@@ -548,9 +551,9 @@ window.exportPDF=function(){
   var ctx=cvs.getContext('2d');
   ctx.fillStyle='#e8ecf1';ctx.fillRect(0,0,cW,cH);
 
-  if(wmsConfig[curKey]){
+  if(wmsConfig[exportBaseKey]){
     // WMS approach: one single high-resolution image
-    var wms=wmsConfig[curKey];
+    var wms=wmsConfig[exportBaseKey];
     btn.textContent='WMS kaart laden (hoge resolutie)...';
 
     // Convert tile-aligned bounds to EPSG:3857 bbox
@@ -600,7 +603,7 @@ window.exportPDF=function(){
       pdoktopo:'https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/standaard/EPSG:3857/{z}/{x}/{y}.png',
       pdokkad:'https://service.pdok.nl/kadaster/kadastralekaart/wmts/v5_0/Kadastralekaart/EPSG:3857/{z}/{x}/{y}.png'
     };
-    var pdfTileUrl=tileUrls[curKey]||tileUrls.pdoklucht;
+    var pdfTileUrl=tileUrls[exportBaseKey]||tileUrls.pdoklucht;
     var totalT=(tSE.x-tNW.x+1)*(tSE.y-tNW.y+1);
     var loadedT=0;
 
