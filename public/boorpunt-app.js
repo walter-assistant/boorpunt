@@ -146,7 +146,7 @@ if(window.__boorpuntMap) { console.log('Boorpunt: map already loaded, skipping i
 var map=L.map('map',{center:[cLat,cLng],zoom:defZoom});
 window.__boorpuntMap=map;
 
-var cur=tiles.sat, curKey='sat';
+var cur=tiles.pdoklucht, curKey='pdoklucht';
 cur.addTo(map);
 
 // Check of tiles laden
@@ -592,15 +592,15 @@ window.exportPDF=function(){
 
   function loadTilesAndFinish(){
     var tileUrls={
-      sat:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      hyb:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      sat:'https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg',
+      hyb:'https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg',
       map:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       osm:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       pdoklucht:'https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg',
       pdoktopo:'https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/standaard/EPSG:3857/{z}/{x}/{y}.png',
       pdokkad:'https://service.pdok.nl/kadaster/kadastralekaart/wmts/v5_0/Kadastralekaart/EPSG:3857/{z}/{x}/{y}.png'
     };
-    var pdfTileUrl=tileUrls[curKey]||tileUrls.sat;
+    var pdfTileUrl=tileUrls[curKey]||tileUrls.pdoklucht;
     var totalT=(tSE.x-tNW.x+1)*(tSE.y-tNW.y+1);
     var loadedT=0;
 
