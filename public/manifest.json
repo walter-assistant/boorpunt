@@ -1,7 +1,7 @@
 {
   "name": "Boorpunt — Ground Research BV",
   "short_name": "Boorpunt",
-  "start_url": "/",
+  "start_url": "/?v=2026-04-21b",
   "display": "standalone",
   "background_color": "#1a2332",
   "theme_color": "#1a2332",
