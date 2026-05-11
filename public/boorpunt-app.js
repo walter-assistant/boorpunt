@@ -882,13 +882,13 @@ window.exportPDF=function(){
     pdf.text('Datum: '+datum,tx,ty);
 
     // Schaalbalk op basis van zoom en latitude
-    ty+=6;
+    ty+=7;
     pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);pdf.setFontSize(7.5);
     pdf.text('Schaal',tx,ty);
-    ty+=3.5;
+    ty+=5;
     var center={lat:(minLat+maxLat)/2,lng:(minLng+maxLng)/2};
     var mPerPx=(156543.03*Math.cos(center.lat*Math.PI/180))/Math.pow(2,z)/pxScale;
-    var targetPx=120;
+    var targetPx=140;
     var targetM=mPerPx*targetPx;
     var steps=[1,2,5];
     var pow10=Math.pow(10,Math.floor(Math.log(targetM)/Math.log(10)));
@@ -897,31 +897,32 @@ window.exportPDF=function(){
       if(steps[si]*pow10>=targetM){nice=steps[si]*pow10;break;}
     }
     var barPx=nice/mPerPx;
-    var barW=Math.max(18,Math.min(38,barPx*(mapW/cW)));
-    var barX=tx,barY=ty+1.5;
+    var barW=Math.max(24,Math.min(34,barPx*(mapW/cW)));
+    var barX=tx+1,barY=ty;
     pdf.setDrawColor(40,40,40);pdf.setLineWidth(0.45);
     pdf.line(barX,barY,barX+barW,barY);
     pdf.line(barX,barY-1.2,barX,barY+1.2);
     pdf.line(barX+barW/2,barY-1.2,barX+barW/2,barY+1.2);
     pdf.line(barX+barW,barY-1.2,barX+barW,barY+1.2);
-    pdf.setFont('helvetica','normal');pdf.setTextColor(70,70,70);pdf.setFontSize(6.8);
-    pdf.text('0',barX,barY+3.2);
-    pdf.text(Math.round(nice/2)+'m',barX+barW/2,barY+3.2,{align:'center'});
-    pdf.text(Math.round(nice)+'m',barX+barW,barY+3.2,{align:'right'});
+    pdf.setFont('helvetica','normal');pdf.setTextColor(70,70,70);pdf.setFontSize(5.9);
+    pdf.text('0',barX,barY+4.3,{align:'center'});
+    pdf.text(Math.round(nice/2)+' m',barX+barW/2,barY+4.3,{align:'center'});
+    pdf.text(Math.round(nice)+' m',barX+barW,barY+4.3,{align:'center'});
 
-    // North arrow
-    ty=barY+8;
+    // North arrow — eigen blok, zodat hij niet door schaal/legenda heen loopt
+    ty=barY+12;
     pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);pdf.setFontSize(7.5);
     pdf.text('Noord',tx,ty);
-    var nx=tx+8, ny=ty+2;
-    pdf.setDrawColor(30,30,30);pdf.setLineWidth(0.5);
-    pdf.line(nx,ny+8,nx,ny-3);
-    pdf.triangle(nx,ny-5,nx-2.1,ny-1.2,nx+2.1,ny-1.2,'F');
-    pdf.setFontSize(9);pdf.setTextColor(30,30,30);
-    pdf.text('N',nx,ny-6.5,{align:'center'});
+    var nx=tx+10, ny=ty+8;
+    pdf.setDrawColor(30,30,30);pdf.setLineWidth(0.65);
+    pdf.line(nx,ny+8,nx,ny-4);
+    pdf.setFillColor(30,58,95);
+    pdf.triangle(nx,ny-7,nx-2.5,ny-2.5,nx+2.5,ny-2.5,'F');
+    pdf.setFont('helvetica','bold');pdf.setFontSize(8);pdf.setTextColor(30,58,95);
+    pdf.text('N',nx,ny-8.5,{align:'center'});
 
     // Diepte legenda
-    ty+=15;
+    ty=ny+16;
     pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);pdf.setFontSize(7.5);
     pdf.text('Diepte legenda',tx,ty);
     ty+=3.5;
@@ -954,7 +955,7 @@ window.exportPDF=function(){
       });
     });
 
-    if(ty<panelY+panelH-24){
+    if(klicLegenItems.length>0&&ty<panelY+panelH-24){
       ty+=1;
       pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);pdf.setFontSize(7.5);
       pdf.text('KLIC',tx,ty);
