@@ -1052,9 +1052,9 @@ function parseCSVFile(file){
         var ws=wb.Sheets[wb.SheetNames[0]];
         var jsonData=XLSX.utils.sheet_to_json(ws,{defval:''});
         if(jsonData.length===0){csvStatusEl.style.color='#c62828';csvStatusEl.textContent='Excel bestand is leeg';return;}
-        var headers=Object.keys(jsonData[0]).map(function(h){return h.trim();});
-        var rows=jsonData.map(function(row){return headers.map(function(h){return String(row[h]||'');});});
-        headers=headers.map(function(h){return h.toLowerCase();});
+        var rawHeaders=Object.keys(jsonData[0]);
+        var headers=rawHeaders.map(function(h){return String(h).trim().toLowerCase();});
+        var rows=jsonData.map(function(row){return rawHeaders.map(function(h){return String(row[h]||'');});});
         processRows(headers,rows,file.name);
       }catch(err){
         csvStatusEl.style.color='#c62828';
@@ -1090,6 +1090,47 @@ function parseCSVFile(file){
     }
   };
   reader.readAsText(file);
+}
+
+function parseDutchNumber(value){
+  if(value===undefined||value===null) return NaN;
+  var s=String(value).trim();
+  if(!s) return NaN;
+  s=s.replace(/\s+/g,'').replace(/[^0-9,\.\-]/g,'');
+  if(!s||s==='-'||s==='.'||s===',') return NaN;
+
+  var hasComma=s.indexOf(',')>-1;
+  var hasDot=s.indexOf('.')>-1;
+  if(hasComma&&hasDot){
+    // Laatste scheidingsteken is de decimaal; de andere zijn duizendtallen.
+    if(s.lastIndexOf(',')>s.lastIndexOf('.')){
+      s=s.replace(/\./g,'').replace(',','.');
+    } else {
+      s=s.replace(/,/g,'');
+    }
+  } else if(hasComma){
+    s=s.replace(',','.');
+  } else if(hasDot){
+    var parts=s.split('.');
+    // RD-coördinaten worden vaak als 123.456 geschreven: punt = duizendtal, niet decimaal.
+    if(parts.length>1&&parts[parts.length-1].length===3&&parts.slice(0,-1).every(function(p){return p.length<=3;})){
+      s=parts.join('');
+    }
+  }
+  return parseFloat(s);
+}
+
+function detectCoordinateSystem(xVal,yVal){
+  // RD: X circa 0-300.000, Y circa 300.000-625.000
+  if(xVal>=0&&xVal<=300000&&yVal>=300000&&yVal<=625000) return {kind:'rd',x:xVal,y:yVal,swapped:false};
+  // Soms staan RD-kolommen omgedraaid (Y,X). Dat gaf vreemde PDF's door punten ver buiten beeld.
+  if(yVal>=0&&yVal<=300000&&xVal>=300000&&xVal<=625000) return {kind:'rd',x:yVal,y:xVal,swapped:true};
+  // WGS84 lon/lat of lat/lon binnen Nederland.
+  if(xVal>=3&&xVal<=8&&yVal>=50&&yVal<=54) return {kind:'wgs',lat:yVal,lng:xVal,swapped:false};
+  if(yVal>=3&&yVal<=8&&xVal>=50&&xVal<=54) return {kind:'wgs',lat:xVal,lng:yVal,swapped:true};
+  // Fallback: grote getallen als RD behandelen, maar niet zonder melding.
+  if(Math.abs(xVal)>1000&&Math.abs(yVal)>1000) return {kind:'rd',x:xVal,y:yVal,swapped:false,outOfRange:true};
+  return {kind:'unknown'};
 }
 
 function processRows(headers,rows,fileName){
@@ -1159,31 +1200,32 @@ function processRows(headers,rows,fileName){
       console.log('CSV Import — Kolom indices: Naam='+colNaam+' X='+colX+' Y='+colY+' Diepte='+colDiepte+' Dia='+colDia+' Type='+colType);
       if(rows.length>0) console.log('CSV Import — Eerste rij:',rows[0]);
 
-      var imported=0, skipped=0;
+      var imported=0, skipped=0, swapped=0, outOfRange=0;
       for(var li=0;li<rows.length;li++){
         var vals=rows[li];
-        var xVal=parseFloat(vals[colX]);
-        var yVal=parseFloat(vals[colY]);
+        var xVal=parseDutchNumber(vals[colX]);
+        var yVal=parseDutchNumber(vals[colY]);
         if(isNaN(xVal)||isNaN(yVal)){skipped++;continue;}
 
-        // Detect if WGS84 (lat/lng) vs RD — RD X is typically 0-300000, Y 300000-625000
+        var coord=detectCoordinateSystem(xVal,yVal);
         var rdX,rdY;
-        if(xVal>1000 && yVal>1000){
-          // Assume RD
-          rdX=Math.round(xVal);rdY=Math.round(yVal);
-        } else {
-          // Assume WGS84 lat/lng — convert
-          var rdC=wgs2rd(yVal,xVal); // lat=y, lng=x in WGS84
+        if(coord.kind==='rd'){
+          rdX=Math.round(coord.x);rdY=Math.round(coord.y);
+        } else if(coord.kind==='wgs'){
+          var rdC=wgs2rd(coord.lat,coord.lng);
           rdX=rdC[0];rdY=rdC[1];
+        } else {
+          skipped++;continue;
         }
+        if(coord.swapped) swapped++;
+        if(coord.outOfRange) outOfRange++;
 
         var naam=colNaam>=0&&vals[colNaam]?vals[colNaam]:('CSV'+(imported+1).toString().padStart(3,'0'));
         var type=colType>=0&&vals[colType]?vals[colType].trim():'';
         var typeLower=type.toLowerCase();
 
         // Diepte: neem over uit bestand, anders 0
-        var diepteRaw=colDiepte>=0?String(vals[colDiepte]).replace(',','.'):'';
-        var diepte=parseFloat(diepteRaw);
+        var diepte=parseDutchNumber(colDiepte>=0?vals[colDiepte]:'');
         // Negatieve dieptes (m-mv notatie) → absoluut
         if(!isNaN(diepte)&&diepte<0) diepte=Math.abs(diepte);
         if(isNaN(diepte)){
@@ -1193,8 +1235,7 @@ function processRows(headers,rows,fileName){
         }
         // Auto-detect cm vs m (>500 = waarschijnlijk cm)
         if(diepte>500) diepte=Math.round(diepte/100*10)/10;
-        var diaRaw=colDia>=0?String(vals[colDia]).replace(',','.').replace(/[^0-9.]/g,''):'';
-        var dia=parseFloat(diaRaw);
+        var dia=parseDutchNumber(colDia>=0?vals[colDia]:'');
         if(isNaN(dia)||dia<1){
           var defaultDia=parseInt(document.getElementById('csvDefaultDia').value)||0;
           dia=defaultDia;
@@ -1215,7 +1256,10 @@ function processRows(headers,rows,fileName){
       refreshPointDataViews();
 
       csvStatusEl.style.color='#2e7d32';
-      csvStatusEl.textContent='✅ '+imported+' punten geïmporteerd uit '+fileName+(skipped>0?' ('+skipped+' overgeslagen)':'');
+      csvStatusEl.textContent='✅ '+imported+' punten geïmporteerd uit '+fileName+
+        (skipped>0?' ('+skipped+' overgeslagen)':'')+
+        (swapped>0?' — '+swapped+' X/Y automatisch omgedraaid':'')+
+        (outOfRange>0?' — let op: '+outOfRange+' RD buiten normaal bereik':'');
 }
 
 // === KLIC IMPORT ===
