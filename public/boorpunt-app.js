@@ -41,18 +41,25 @@ function buildColorScale(){
 }
 
 function cc(d){
-  if(d===0||d===undefined||d===null) return '#9e9e9e'; // Grijs voor onbekende diepte
-  if(colorScale.ranges.length===0) return '#2e7d32';
+  if(d===0||d===undefined||d===null) return '#1565c0';
+  if(colorScale.ranges.length===0) return '#1565c0';
   for(var ci=0;ci<colorScale.ranges.length;ci++){
     if(d<=colorScale.ranges[ci].to) return colorScale.ranges[ci].color;
   }
   return COLORS[COLORS.length-1];
 }
 
+function pointColor(b){
+  if(isPeilbuisType(b)) return '#ff6f00';
+  if(b&&b.d>0) return cc(b.d);
+  var idx=data.indexOf(b);
+  return COLORS[(idx<0?0:idx)%COLORS.length];
+}
+
 function updateLegend(){
   var el=document.getElementById('legend');
   if(!el) return;
-  if(colorScale.ranges.length===0){el.innerHTML='<b>Geen data</b>';return;}
+  if(colorScale.ranges.length===0){el.innerHTML='<b>Boorpunten:</b> kleur per punt &nbsp;|&nbsp; <b>Diepte:</b> niet ingevuld';return;}
   var h='<b>Diepte:</b> ';
   colorScale.ranges.forEach(function(r,i){
     var label;
@@ -65,9 +72,9 @@ function updateLegend(){
     }
     h+='<span><i class="d" style="background:'+r.color+'"></i>'+label+'</span> ';
   });
-  // Toon "onbekend" als er punten met diepte 0 zijn
+  // Toon punten zonder diepte niet grijs, maar als kleur per punt
   var hasZero=data.some(function(d){return d.d===0;});
-  if(hasZero) h+='<span><i class="d" style="background:#9e9e9e"></i>onbekend</span> ';
+  if(hasZero) h+='<span><i class="d" style="background:#1565c0"></i>zonder diepte = kleur per punt</span> ';
   h+='&nbsp;|&nbsp; <b>Grootte:</b> schaalt met diameter';
   el.innerHTML=h;
 }
@@ -196,7 +203,7 @@ function getPointStrokeColor(b){
 }
 
 function getPointFillColor(b){
-  return isPeilbuisType(b)?'#ff6f00':cc(b.d);
+  return pointColor(b);
 }
 
 function getPointLabelColor(b){
@@ -537,8 +544,8 @@ window.exportPDF=function(){
   var originX=pxNW.x, originY=pxNW.y;
   var baseCW=Math.max(1,Math.round(pxSE.x-pxNW.x)), baseCH=Math.max(1,Math.round(pxSE.y-pxNW.y));
 
-  // PDF altijd met echte orthofoto van bovenaf renderen, ongeacht huidige kaartlaag
-  var exportBaseKey=(curKey==='pdoktopo'||curKey==='pdokkad'||curKey==='osm'||curKey==='map')?curKey:'pdoklucht';
+  // PDF altijd met echte PDOK orthofoto van bovenaf renderen, nooit Google/tilted/kaartlaag.
+  var exportBaseKey='pdoklucht';
 
   // === WMS config for PDOK layers (single high-res image, QGIS/ArcGIS quality) ===
   var wmsConfig={
@@ -770,7 +777,7 @@ window.exportPDF=function(){
     visible.forEach(function(b){
       var px=ll2px(b.lat,b.lng,z);
       var cx=(px.x-originX)*pxScale, cy=(px.y-originY)*pxScale;
-      var color=cc(b.d);
+      var color=pointColor(b);
 
       // White outline circle
       ctx.beginPath();ctx.arc(cx,cy,dotRadius+Math.round(1.5*scaleFactor),0,2*Math.PI);
