@@ -487,27 +487,39 @@ window.exportPDF=function(){
     return{x:x,y:y};
   }
 
-  // Auto-center on borehole points with padding — always north-up
+  // Auto-center on borehole points with padding — always north-up.
+  // Use RD meters for the bounding box, then convert to WGS. This prevents one axis
+  // or Dutch thousands separators from blowing up the PDF extent.
   var minLat,maxLat,minLng,maxLng,z;
+  var pdfMapAspect=221/190; // same ratio as the map frame in the A4 landscape PDF
   if(data.length>0){
-    minLat=999;maxLat=-999;minLng=999;maxLng=-999;
+    var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
     data.forEach(function(b){
-      if(b.lat<minLat)minLat=b.lat;
-      if(b.lat>maxLat)maxLat=b.lat;
-      if(b.lng<minLng)minLng=b.lng;
-      if(b.lng>maxLng)maxLng=b.lng;
+      if(b.x<minX)minX=b.x;if(b.x>maxX)maxX=b.x;
+      if(b.y<minY)minY=b.y;if(b.y>maxY)maxY=b.y;
     });
-    // Add 15% padding around borehole extent
-    var latPad=Math.max((maxLat-minLat)*0.15,0.0005);
-    var lngPad=Math.max((maxLng-minLng)*0.15,0.0008);
-    minLat-=latPad;maxLat+=latPad;
-    minLng-=lngPad;maxLng+=lngPad;
-    // Calculate optimal zoom to fit all points
-    // Target canvas ~4000px wide for high-res PDF output
-    var targetPxW=4000;
-    for(z=19;z>=13;z--){
-      var pxW=ll2px(minLat,maxLng,z).x-ll2px(minLat,minLng,z).x;
-      if(pxW<=targetPxW) break;
+    var w=Math.max(maxX-minX,80);
+    var h=Math.max(maxY-minY,80);
+    minX-=w*0.18;maxX+=w*0.18;
+    minY-=h*0.18;maxY+=h*0.18;
+    w=maxX-minX;h=maxY-minY;
+    var curAspect=w/h;
+    if(curAspect<pdfMapAspect){
+      var newW=h*pdfMapAspect, addW=(newW-w)/2;
+      minX-=addW;maxX+=addW;
+    } else if(curAspect>pdfMapAspect){
+      var newH=w/pdfMapAspect, addH=(newH-h)/2;
+      minY-=addH;maxY+=addH;
+    }
+    var sw=rd(minX,minY), ne=rd(maxX,maxY);
+    minLat=sw[0];minLng=sw[1];maxLat=ne[0];maxLng=ne[1];
+
+    // Calculate optimal zoom to fit both width and height into a high-res canvas
+    var targetPxW=5000, targetPxH=Math.round(targetPxW/pdfMapAspect);
+    for(z=20;z>=12;z--){
+      var pNW=ll2px(maxLat,minLng,z), pSE=ll2px(minLat,maxLng,z);
+      var pxW=pSE.x-pNW.x, pxH=pSE.y-pNW.y;
+      if(pxW<=targetPxW&&pxH<=targetPxH) break;
     }
   } else {
     // Fallback: use current map view
@@ -516,14 +528,14 @@ window.exportPDF=function(){
     minLng=bounds.getWest();maxLng=bounds.getEast();
     z=map.getZoom();
   }
-  if(z<13)z=13; if(z>19)z=19;
+  if(z<12)z=12; if(z>20)z=20;
   z=Math.round(z);
 
-  // Get tile range
+  // Get tile range, but render against the exact requested bounds (not tile-aligned).
   var tNW=ll2tile(maxLat,minLng,z), tSE=ll2tile(minLat,maxLng,z);
   var pxNW=ll2px(maxLat,minLng,z), pxSE=ll2px(minLat,maxLng,z);
-  var originX=tNW.x*256, originY=tNW.y*256;
-  var baseCW=(tSE.x-tNW.x+1)*256, baseCH=(tSE.y-tNW.y+1)*256;
+  var originX=pxNW.x, originY=pxNW.y;
+  var baseCW=Math.max(1,Math.round(pxSE.x-pxNW.x)), baseCH=Math.max(1,Math.round(pxSE.y-pxNW.y));
 
   // PDF altijd met echte orthofoto van bovenaf renderen, ongeacht huidige kaartlaag
   var exportBaseKey=(curKey==='pdoktopo'||curKey==='pdokkad'||curKey==='osm'||curKey==='map')?curKey:'pdoklucht';
@@ -556,13 +568,17 @@ window.exportPDF=function(){
     var wms=wmsConfig[exportBaseKey];
     btn.textContent='WMS kaart laden (hoge resolutie)...';
 
-    // Convert tile-aligned bounds to EPSG:3857 bbox
-    var nTiles=Math.pow(2,z);
-    var fullExt=40075016.68, halfExt=20037508.34;
-    var bboxMinX=tNW.x/nTiles*fullExt-halfExt;
-    var bboxMaxX=(tSE.x+1)/nTiles*fullExt-halfExt;
-    var bboxMaxY=halfExt-tNW.y/nTiles*fullExt;
-    var bboxMinY=halfExt-(tSE.y+1)/nTiles*fullExt;
+    // Convert exact export bounds to EPSG:3857 bbox
+    var halfExt=20037508.34;
+    function lonToMercX(lng){return lng*halfExt/180;}
+    function latToMercY(lat){
+      var y=Math.log(Math.tan((90+lat)*Math.PI/360))/(Math.PI/180);
+      return y*halfExt/180;
+    }
+    var bboxMinX=lonToMercX(minLng);
+    var bboxMaxX=lonToMercX(maxLng);
+    var bboxMinY=latToMercY(minLat);
+    var bboxMaxY=latToMercY(maxLat);
 
     var wmsUrl=wms.url+'?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'+
       '&LAYERS='+encodeURIComponent(wms.layer)+
@@ -615,7 +631,7 @@ window.exportPDF=function(){
           var img=new Image();
           img.crossOrigin='anonymous';
           img.onload=function(){
-            ctx.drawImage(img,(ttx-tNW.x)*256,(tty-tNW.y)*256,256,256);
+            ctx.drawImage(img,(ttx*256-originX)*pxScale,(tty*256-originY)*pxScale,256*pxScale,256*pxScale);
             loadedT++;btn.textContent='Tiles '+loadedT+'/'+totalT+'...';
             if(loadedT===totalT)finishPDF();
           };
@@ -841,8 +857,8 @@ window.exportPDF=function(){
     pdf.setFont('helvetica','bold');pdf.setTextColor(30,58,95);pdf.setFontSize(7.5);
     pdf.text('Schaal',tx,ty);
     ty+=3.5;
-    var center=map.getCenter();
-    var mPerPx=(156543.03*Math.cos(center.lat*Math.PI/180))/Math.pow(2,z);
+    var center={lat:(minLat+maxLat)/2,lng:(minLng+maxLng)/2};
+    var mPerPx=(156543.03*Math.cos(center.lat*Math.PI/180))/Math.pow(2,z)/pxScale;
     var targetPx=120;
     var targetM=mPerPx*targetPx;
     var steps=[1,2,5];
