@@ -499,7 +499,29 @@ window.exportPDF=function(){
   // or Dutch thousands separators from blowing up the PDF extent.
   var minLat,maxLat,minLng,maxLng,z;
   var pdfMapAspect=221/190; // same ratio as the map frame in the A4 landscape PDF
-  if(data.length>0){
+  var useCurrentView=data.length>0&&map.getZoom()>=17;
+  if(useCurrentView){
+    // Ingezoomd? Dan is de huidige kaartuitsnede leidend: handig voor 1 boring/detailtekening.
+    var bounds=map.getBounds();
+    minLat=bounds.getSouth();maxLat=bounds.getNorth();
+    minLng=bounds.getWest();maxLng=bounds.getEast();
+
+    // Houd de PDF-kaartverhouding aan zonder de gekozen uitsnede onnodig te vervormen.
+    var midLat=(minLat+maxLat)/2, midLng=(minLng+maxLng)/2;
+    var latSpan=maxLat-minLat, lngSpan=maxLng-minLng;
+    var metersPerDegLat=111320;
+    var metersPerDegLng=111320*Math.cos(midLat*Math.PI/180);
+    var wM=lngSpan*metersPerDegLng, hM=latSpan*metersPerDegLat;
+    var curAspect=wM/hM;
+    if(curAspect<pdfMapAspect){
+      var newLngSpan=(hM*pdfMapAspect)/metersPerDegLng;
+      minLng=midLng-newLngSpan/2;maxLng=midLng+newLngSpan/2;
+    } else if(curAspect>pdfMapAspect){
+      var newLatSpan=(wM/pdfMapAspect)/metersPerDegLat;
+      minLat=midLat-newLatSpan/2;maxLat=midLat+newLatSpan/2;
+    }
+    z=map.getZoom();
+  } else if(data.length>0){
     var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
     data.forEach(function(b){
       if(b.x<minX)minX=b.x;if(b.x>maxX)maxX=b.x;
