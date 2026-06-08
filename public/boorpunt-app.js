@@ -543,8 +543,9 @@ window.exportPDF=function(){
     var sw=rd(minX,minY), ne=rd(maxX,maxY);
     minLat=sw[0];minLng=sw[1];maxLat=ne[0];maxLng=ne[1];
 
-    // Calculate optimal zoom to fit both width and height into a high-res canvas
-    var targetPxW=5000, targetPxH=Math.round(targetPxW/pdfMapAspect);
+    // Calculate optimal zoom to fit both width and height into a high-res canvas.
+    // 5000px + PNG maakte PDF's onnodig groot; 3000px blijft scherp op A4 maar is veel lichter.
+    var targetPxW=3000, targetPxH=Math.round(targetPxW/pdfMapAspect);
     for(z=20;z>=12;z--){
       var pNW=ll2px(maxLat,minLng,z), pSE=ll2px(minLat,maxLng,z);
       var pxW=pSE.x-pNW.x, pxH=pSE.y-pNW.y;
@@ -576,10 +577,11 @@ window.exportPDF=function(){
     pdokkad:{url:'https://service.pdok.nl/kadaster/kadastralekaart/wms/v5_0',layer:'Kadastralekaart',format:'image/png'}
   };
 
-  // For WMS: scale canvas to high resolution independent of tile grid
+  // For WMS: scale canvas to high resolution independent of tile grid.
+  // 3000px is plenty for A4 export and keeps PDF size sane.
   var pxScale=1;
   if(wmsConfig[curKey]){
-    var wmsTargetW=5000;
+    var wmsTargetW=3000;
     if(baseCW<wmsTargetW){
       pxScale=wmsTargetW/baseCW;
     }
@@ -824,12 +826,12 @@ window.exportPDF=function(){
       ctx.fillText(b.n,tx,cy+Math.round(labelFontSize*0.35));
     });
 
-    // Get image
-    var imgData=cvs.toDataURL('image/png');
+    // Get image. JPEG is dramatically smaller than PNG for aerial-photo maps.
+    var imgData=cvs.toDataURL('image/jpeg',0.82);
 
     // Build PDF
     var jsPDF=window.jspdf.jsPDF;
-    var pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+    var pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4',compress:true});
     var pw=297,ph=210,mg=10;
     var nu=new Date();
     var datum=nu.getDate()+'-'+(nu.getMonth()+1)+'-'+nu.getFullYear();
@@ -847,7 +849,7 @@ window.exportPDF=function(){
     var panelH=mapH;
 
     // Grote kaart links
-    pdf.addImage(imgData,'PNG',mapX,mapY,mapW,mapH);
+    pdf.addImage(imgData,'JPEG',mapX,mapY,mapW,mapH,undefined,'FAST');
     pdf.setDrawColor(40,40,40);pdf.setLineWidth(0.35);
     pdf.rect(mapX,mapY,mapW,mapH,'S');
 
