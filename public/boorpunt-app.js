@@ -358,6 +358,26 @@ window.undoLast=function(){
   refreshPointDataViews();
 };
 
+window.applyAddDepthToAll=function(){
+  var raw=String(document.getElementById('addDepth')?.value||'').replace(',','.').trim();
+  if(raw==='') return;
+  var diepte=parseFloat(raw);
+  if(isNaN(diepte)||diepte<0){alert('Vul een geldige diepte in');return;}
+  diepte=Math.round(diepte*10)/10;
+  data.forEach(function(b){b.d=diepte;});
+  refreshPointDataViews();
+};
+
+window.applyAddDiameterToAll=function(){
+  var raw=String(document.getElementById('addDia')?.value||'').replace(',','.').trim();
+  if(raw==='') return;
+  var dia=parseFloat(raw);
+  if(isNaN(dia)||dia<0){alert('Vul een geldige diameter in');return;}
+  dia=Math.round(dia*10)/10;
+  data.forEach(function(b){b.dia=dia;});
+  refreshPointDataViews();
+};
+
 function refreshTable(){
   var h2='';data.forEach(function(b,i){
     var style=b.custom?'background:#e8f5e9;':'';

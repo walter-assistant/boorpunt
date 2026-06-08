@@ -280,8 +280,8 @@ const BOORPUNT_HTML = `
 <div id="addPanel" style="display:none;padding:8px 16px;background:#e8f5e9;font-size:12px">
   &#128205; Klik op de kaart om een punt te plaatsen &nbsp;|&nbsp;
   Naam: <input id="addName" value="" placeholder="bijv. A70000" style="width:80px;padding:2px 5px;font-size:12px"> &nbsp;
-  Diepte: <input id="addDepth" type="number" value="200" style="width:55px;padding:2px 5px;font-size:12px">m &nbsp;
-  &empty;: <input id="addDia" type="number" value="40" min="1" style="width:55px;padding:2px 5px;font-size:12px">mm
+  Diepte: <input id="addDepth" type="number" value="200" onchange="applyAddDepthToAll()" style="width:55px;padding:2px 5px;font-size:12px">m &nbsp;
+  &empty;: <input id="addDia" type="number" value="40" min="1" onchange="applyAddDiameterToAll()" style="width:55px;padding:2px 5px;font-size:12px">mm
 </div>
 <div id="map"></div>
 <div class="leg" id="legend"></div>
