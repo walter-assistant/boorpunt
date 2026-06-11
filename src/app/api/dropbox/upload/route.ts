@@ -1,11 +1,79 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+const STANDARD_PROJECT_FOLDERS = [
+  'Bodemonderzoek',
+  'Bodemopbouw dino',
+  'dag rapport',
+  'EED',
+  "Foto's",
+  'ITge',
+  'Klic',
+  'Mail',
+  'Offerte',
+  'OLO',
+  'Ontwerp',
+  'Oplever rapportage',
+  'Plan van aanpak',
+  'SPF verklaring',
+  'Tekening',
+  'Werkbeschrijving 2100',
+  'WKO Tool'
+];
+
+function normalizePath(path: string) {
+  const clean = String(path || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '');
+  return clean.startsWith('/') ? (clean || '/') : `/${clean}`;
+}
+
+async function createFolder(accessToken: string, folderPath: string) {
+  const dropboxPath = normalizePath(folderPath);
+  if (!dropboxPath || dropboxPath === '/') return { path: dropboxPath, existed: true };
+
+  const response = await fetch('https://api.dropboxapi.com/2/files/create_folder_v2', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ path: dropboxPath, autorename: false }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.text();
+    if (/conflict|already_exists|path\/conflict\/folder/i.test(errorData)) {
+      return { path: dropboxPath, existed: true };
+    }
+    throw new Error(`Map aanmaken mislukt: ${errorData}`);
+  }
+
+  const result = await response.json();
+  return { path: result.metadata?.path_display || dropboxPath, existed: false };
+}
+
+async function ensureFolder(accessToken: string, folderPath: string) {
+  const segments = normalizePath(folderPath).split('/').filter(Boolean);
+  let current = '';
+  let last = { path: '/', existed: true };
+  for (const segment of segments) {
+    current += `/${segment}`;
+    last = await createFolder(accessToken, current);
+  }
+  return last;
+}
+
+async function ensureStandardProjectFolders(accessToken: string, projectRoot: string) {
+  await ensureFolder(accessToken, projectRoot);
+  for (const folder of STANDARD_PROJECT_FOLDERS) {
+    await createFolder(accessToken, `${normalizePath(projectRoot)}/${folder}`);
+  }
+}
+
 // Dropbox file upload API route
 // Receives: base64 file content + path, uploads to Dropbox
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { filePath, fileContent, fileName } = body;
+    const { filePath, fileContent, projectRoot } = body;
 
     if (!filePath || !fileContent) {
       return NextResponse.json(
@@ -14,7 +82,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get access token - try refresh first, fall back to stored token
     const accessToken = await getAccessToken();
     if (!accessToken) {
       return NextResponse.json(
@@ -23,12 +90,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Decode base64 content to buffer
+    if (projectRoot) await ensureStandardProjectFolders(accessToken, projectRoot);
+
+    const dropboxPath = normalizePath(filePath);
+    const parentPath = dropboxPath.substring(0, dropboxPath.lastIndexOf('/'));
+    if (parentPath) await ensureFolder(accessToken, parentPath);
+
     const fileBuffer = Buffer.from(fileContent, 'base64');
-
-    // Upload to Dropbox
-    const dropboxPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
-
     const uploadResponse = await fetch('https://content.dropboxapi.com/2/files/upload', {
       method: 'POST',
       headers: {
@@ -47,44 +115,6 @@ export async function POST(request: NextRequest) {
     if (!uploadResponse.ok) {
       const errorData = await uploadResponse.text();
       console.error('Dropbox upload error:', errorData);
-
-      // If token expired, try refresh
-      if (uploadResponse.status === 401) {
-        const newToken = await refreshAccessToken();
-        if (newToken) {
-          // Retry with new token
-          const retryResponse = await fetch('https://content.dropboxapi.com/2/files/upload', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${newToken}`,
-              'Dropbox-API-Arg': JSON.stringify({
-                path: dropboxPath,
-                mode: 'overwrite',
-                autorename: false,
-                mute: false,
-              }),
-              'Content-Type': 'application/octet-stream',
-            },
-            body: fileBuffer,
-          });
-
-          if (retryResponse.ok) {
-            const result = await retryResponse.json();
-            return NextResponse.json({
-              success: true,
-              path: result.path_display,
-              size: result.size,
-              message: `Opgeslagen in Dropbox: ${result.path_display}`,
-            });
-          }
-        }
-
-        return NextResponse.json(
-          { error: 'Dropbox token verlopen en refresh mislukt' },
-          { status: 401 }
-        );
-      }
-
       return NextResponse.json(
         { error: `Dropbox upload mislukt: ${errorData}` },
         { status: uploadResponse.status }
@@ -92,7 +122,6 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await uploadResponse.json();
-
     return NextResponse.json({
       success: true,
       path: result.path_display,
@@ -112,7 +141,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { folderPath } = body;
+    const { folderPath, createProjectStructure } = body;
 
     if (!folderPath) {
       return NextResponse.json(
@@ -129,41 +158,14 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const dropboxPath = folderPath.startsWith('/') ? folderPath : `/${folderPath}`;
+    const result = await ensureFolder(accessToken, folderPath);
+    if (createProjectStructure) await ensureStandardProjectFolders(accessToken, folderPath);
 
-    const response = await fetch('https://api.dropboxapi.com/2/files/create_folder_v2', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: dropboxPath,
-        autorename: false,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      // Folder already exists is not an error
-      if (errorData.includes('path/conflict/folder')) {
-        return NextResponse.json({
-          success: true,
-          path: dropboxPath,
-          message: 'Map bestaat al',
-        });
-      }
-      return NextResponse.json(
-        { error: `Map aanmaken mislukt: ${errorData}` },
-        { status: response.status }
-      );
-    }
-
-    const result = await response.json();
     return NextResponse.json({
       success: true,
-      path: result.metadata.path_display,
-      message: `Map aangemaakt: ${result.metadata.path_display}`,
+      path: result.path,
+      message: createProjectStructure ? 'Projectmapstructuur klaar' : `Map klaar: ${result.path}`,
+      folders: createProjectStructure ? STANDARD_PROJECT_FOLDERS : undefined,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -174,42 +176,28 @@ export async function PUT(request: NextRequest) {
 }
 
 // --- Token management ---
-
 let cachedAccessToken: string | null = null;
-let tokenExpiry: number = 0;
+let tokenExpiry = 0;
 
 async function getAccessToken(): Promise<string | null> {
-  // If we have a cached token that's still valid, use it
-  if (cachedAccessToken && Date.now() < tokenExpiry) {
-    return cachedAccessToken;
-  }
-
-  // Try to refresh using refresh token
-  const refreshToken = process.env.DROPBOX_REFRESH_TOKEN;
-  if (refreshToken) {
+  if (cachedAccessToken && Date.now() < tokenExpiry) return cachedAccessToken;
+  if (process.env.DROPBOX_REFRESH_TOKEN) {
     const newToken = await refreshAccessToken();
     if (newToken) return newToken;
   }
-
-  // Fall back to static access token
-  return process.env.DROPBOX_ACCESS_TOKEN || null;
+  return process.env.DROPBOX_ACCESS_TOKEN?.trim() || null;
 }
 
 async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = process.env.DROPBOX_REFRESH_TOKEN;
-  const appKey = process.env.DROPBOX_APP_KEY;
-  const appSecret = process.env.DROPBOX_APP_SECRET;
-
-  if (!refreshToken || !appKey || !appSecret) {
-    return null;
-  }
+  const refreshToken = process.env.DROPBOX_REFRESH_TOKEN?.trim();
+  const appKey = process.env.DROPBOX_APP_KEY?.trim();
+  const appSecret = process.env.DROPBOX_APP_SECRET?.trim();
+  if (!refreshToken || !appKey || !appSecret) return null;
 
   try {
     const response = await fetch('https://api.dropboxapi.com/oauth2/token', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
@@ -225,12 +213,10 @@ async function refreshAccessToken(): Promise<string | null> {
 
     const data = await response.json();
     cachedAccessToken = data.access_token;
-    // Set expiry 5 minutes before actual expiry for safety
-    tokenExpiry = Date.now() + (data.expires_in - 300) * 1000;
-
+    tokenExpiry = Date.now() + ((data.expires_in || 14400) - 300) * 1000;
     return cachedAccessToken;
   } catch (error) {
-    console.error('Token refresh error:', error);
+    console.error('Refresh token error:', error);
     return null;
   }
 }

@@ -1065,10 +1065,11 @@ window.exportPDF=function(){
     if(currentProjectNr){
       try{
         var pdfB64=pdf.output('datauristring').split(',')[1];
-        var dropPath=pdfKlant?('/Ground Research/'+pdfKlant+'/'+currentProjectNr+'/'+pdfName):('/Ground Research/'+currentProjectNr+'/'+pdfName);
-        // Create folder first
-        fetch('/api/dropbox/upload',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({folderPath:dropPath.substring(0,dropPath.lastIndexOf('/'))})}).then(function(){
-          return fetch('/api/dropbox/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filePath:dropPath,fileContent:pdfB64,fileName:pdfName})});
+        var projectRoot=getBoorpuntDropboxProjectRoot(pdfKlant,currentProjectNr);
+        var dropPath=projectRoot+'/Tekening/'+pdfName;
+        // Create full standard project structure first
+        fetch('/api/dropbox/upload',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({folderPath:projectRoot,createProjectStructure:true})}).then(function(){
+          return fetch('/api/dropbox/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filePath:dropPath,fileContent:pdfB64,fileName:pdfName,projectRoot:projectRoot})});
         }).then(function(r){return r.json();}).then(function(res){
           if(res.success){
             var st2=document.getElementById('projectStatus');
@@ -2379,6 +2380,16 @@ window.deleteProject=function(){
 };
 
 // === DROPBOX EXPORT ===
+var DROPBOX_BASE_PROJECT_PATH='/werkmap/Offerte map';
+function cleanDropboxPart(value,fallback){
+  return String(value||fallback||'').normalize('NFKC').replace(/[\\/:*?"<>|\u0000-\u001f]/g,' ').replace(/\s+/g,' ').replace(/[. ]+$/g,'').trim().slice(0,120)||fallback;
+}
+function getBoorpuntDropboxProjectRoot(klant,nr){
+  var klantFolder=cleanDropboxPart(klant,'Zonder klant');
+  var projectFolder=cleanDropboxPart(nr,'Zonder projectnummer');
+  return DROPBOX_BASE_PROJECT_PATH+'/'+klantFolder+'/'+projectFolder;
+}
+
 window.exportDropbox=function(){
   var nr=document.getElementById('projectNr')?document.getElementById('projectNr').value.trim():'';
   if(!nr){alert('Vul eerst een projectnummer in bij Project');return;}
@@ -2387,13 +2398,14 @@ window.exportDropbox=function(){
   statusEl.textContent='Dropbox: map aanmaken...';statusEl.style.color='#0061fe';
 
   var klant=document.getElementById('klantNaam')?document.getElementById('klantNaam').value.trim():'';
-  var folderPath=klant?('/Ground Research/'+klant+'/'+nr):('/Ground Research/'+nr);
+  var projectRoot=getBoorpuntDropboxProjectRoot(klant,nr);
+  var folderPath=projectRoot+'/Tekening';
 
-  // 1. Create folder
+  // 1. Create full standard project structure
   fetch('/api/dropbox/upload',{
     method:'PUT',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({folderPath:folderPath})
+    body:JSON.stringify({folderPath:projectRoot,createProjectStructure:true})
   }).then(function(r){return r.json();}).then(function(res){
     if(res.error){statusEl.textContent='Dropbox fout: '+res.error;statusEl.style.color='#c62828';return;}
 
@@ -2412,7 +2424,8 @@ window.exportDropbox=function(){
       body:JSON.stringify({
         filePath:folderPath+'/boorpunten-'+nr+'.csv',
         fileContent:csvB64,
-        fileName:'boorpunten-'+nr+'.csv'
+        fileName:'boorpunten-'+nr+'.csv',
+        projectRoot:projectRoot
       })
     }).then(function(r){return r.json();});
   }).then(function(res){
@@ -2436,13 +2449,14 @@ window.exportDropbox=function(){
       body:JSON.stringify({
         filePath:folderPath+'/project-'+nr+'.json',
         fileContent:jsonB64,
-        fileName:'project-'+nr+'.json'
+        fileName:'project-'+nr+'.json',
+        projectRoot:projectRoot
       })
     }).then(function(r){return r.json();});
   }).then(function(res){
     if(!res) return;
     if(res.error){statusEl.textContent='Dropbox fout: '+res.error;statusEl.style.color='#c62828';return;}
-    statusEl.textContent='\u2705 Ge\u00ebxporteerd naar Dropbox: '+folderPath;
+    statusEl.textContent='\u2705 Ge\u00ebxporteerd naar Dropbox: '+projectRoot;
     statusEl.style.color='#2e7d32';
   }).catch(function(err){
     statusEl.textContent='Dropbox fout: '+err.message;statusEl.style.color='#c62828';
