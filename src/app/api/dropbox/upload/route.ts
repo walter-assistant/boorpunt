@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const STANDARD_PROJECT_FOLDERS = [
   'Bodemonderzoek',
   'Bodemopbouw dino',
+  'Boorprofiel',
   'dag rapport',
   'EED',
   "Foto's",
