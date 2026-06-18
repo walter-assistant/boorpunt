@@ -254,7 +254,7 @@ const BOORPUNT_HTML = `
 </div>
 <div id="csvDrop" style="margin:0 16px;padding:18px;border:2px dashed #1e3a5f;border-radius:8px;background:#f0f4f8;text-align:center;cursor:pointer;display:none;transition:background 0.2s">
   <div style="font-size:14px;font-weight:700;color:#1e3a5f">&#128194; Sleep CSV of Excel bestand hier</div>
-  <div style="font-size:11px;color:#666;margin-top:4px">CSV, XLSX of XLS &mdash; kolommen: Naam, X (RD), Y (RD), Diepte, Diameter</div>
+  <div style="font-size:11px;color:#666;margin-top:4px">CSV, XLSX of XLS &mdash; minimaal Naam, X (RD), Y (RD). Diepte/diameter kun je daarna in de tabel invullen.</div>
   <div style="margin-top:8px;font-size:12px;display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap">
     <span style="color:#1e3a5f;font-weight:600">Standaard &empty; (als niet in bestand):</span>
     <input id="csvDefaultDia" type="number" value="0" min="0" style="width:60px;padding:4px 6px;font-size:13px;border:1px solid #1e3a5f;border-radius:4px;text-align:center" onclick="event.stopPropagation()">

@@ -381,12 +381,26 @@ window.applyAddDiameterToAll=function(){
 function refreshTable(){
   var h2='';data.forEach(function(b,i){
     var style=b.custom?'background:#e8f5e9;':'';
-    var diaDisp=b.dia>0?b.dia:'-';
-    var diepteDisp=b.d>0?(b.d+'m'):'-';
-    h2+='<tr style="'+style+'"><td>'+(i+1)+'</td><td><b>'+esc(b.n)+'</b>'+(b.custom?' 🆕':'')+'</td><td>'+b.x+'</td><td>'+b.y+'</td><td style="color:'+cc(b.d)+';font-weight:600">'+diepteDisp+'</td><td>'+diaDisp+'</td></tr>';
+    var diaValue=b.dia>0?b.dia:'';
+    var diepteValue=b.d>0?b.d:'';
+    h2+='<tr style="'+style+'"><td>'+(i+1)+'</td><td><b>'+esc(b.n)+'</b>'+(b.custom?' 🆕':'')+'</td><td>'+b.x+'</td><td>'+b.y+'</td>'+
+      '<td><input type="number" min="0" step="0.1" value="'+diepteValue+'" placeholder="m" onchange="updatePointFromTable('+i+',\'d\',this.value)" style="width:64px;padding:4px 5px;border:1px solid #b7c9b7;border-radius:4px;text-align:right;color:'+cc(b.d)+';font-weight:700"> m</td>'+
+      '<td><input type="number" min="0" step="0.1" value="'+diaValue+'" placeholder="mm" onchange="updatePointFromTable('+i+',\'dia\',this.value)" style="width:58px;padding:4px 5px;border:1px solid #b7c9b7;border-radius:4px;text-align:right"> mm</td></tr>';
   });
   document.getElementById('tb').innerHTML=h2;
 }
+
+window.updatePointFromTable=function(idx,field,value){
+  var b=data[idx];
+  if(!b) return;
+  var raw=String(value||'').replace(',','.').trim();
+  var n=raw===''?0:parseFloat(raw);
+  if(isNaN(n)||n<0){alert('Vul een geldige waarde in'); refreshTable(); return;}
+  n=Math.round(n*10)/10;
+  if(field==='d') b.d=n;
+  if(field==='dia') b.dia=n;
+  refreshPointDataViews();
+};
 
 window.closePointEdit=function(){
   map.closePopup();
