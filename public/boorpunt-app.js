@@ -2215,7 +2215,7 @@ window.updateKlantSuggesties=function(){
   }
 })();
 
-window.saveProject=function(){
+window.saveProject=async function(){
   var nr=document.getElementById('projectNr').value.trim();
   var klant=document.getElementById('klantNaam').value.trim();
   if(!nr){alert('Vul een projectnummer in');return;}
@@ -2239,8 +2239,23 @@ window.saveProject=function(){
     window.__supabaseSave('projects_index',Object.keys(allProjects));
   }
   var label=klant?(klant+' / '+nr):nr;
-  document.getElementById('projectStatus').textContent='\u2705 Project '+label+' opgeslagen ('+data.length+' punten)';
-  document.getElementById('projectStatus').style.color='#2e7d32';
+  var statusEl=document.getElementById('projectStatus');
+  statusEl.textContent='Project opgeslagen, Dropbox-map aanmaken...';
+  statusEl.style.color='#0061fe';
+  try{
+    var projectRoot=getBoorpuntDropboxProjectRoot(klant,nr);
+    var response=await fetch('/api/dropbox/upload',{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({folderPath:projectRoot,createProjectStructure:true})
+    });
+    var result=await response.json();
+    if(!response.ok||result.error)throw new Error(result.error||'Dropbox-map aanmaken mislukt');
+    statusEl.textContent='\u2705 Project '+label+' opgeslagen + Dropbox-map klaar ('+data.length+' punten)';
+    statusEl.style.color='#2e7d32';
+  }catch(err){
+    statusEl.textContent='\u26a0\ufe0f Project opgeslagen, Dropbox-map mislukt: '+err.message;
+    statusEl.style.color='#c62828';
+  }
 };
 
 window.loadProjectList=async function(){
